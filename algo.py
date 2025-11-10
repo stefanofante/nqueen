@@ -4,6 +4,8 @@ import random
 import math
 import time
 import statistics
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor
 from collections import Counter
 import matplotlib.pyplot as plt
 
@@ -36,6 +38,9 @@ PC_FIXED = 0.8
 TOURNAMENT_SIZE_FIXED = 3
 
 FITNESS_MODES = ["F1",  "F3", "F4", "F5", "F6"]
+
+# Numero di processi per il parallelismo
+NUM_PROCESSES = multiprocessing.cpu_count() - 1  # Lascia un core libero
 
 
 # ======================================================
@@ -488,6 +493,180 @@ def tune_ga_for_N(
 
 
 # ======================================================
+# 6.5. Funzioni per parallelizzazione
+# ======================================================
+
+def run_single_ga_experiment(params):
+    """
+    Funzione wrapper per eseguire un singolo esperimento GA.
+    Necessaria per il multiprocessing.
+    """
+    N, pop_size, max_gen, pc, pm, tournament_size, fitness_mode = params
+    return ga_nqueens(
+        N,
+        pop_size=pop_size,
+        max_gen=max_gen,
+        pc=pc,
+        pm=pm,
+        tournament_size=tournament_size,
+        fitness_mode=fitness_mode,
+    )
+
+
+def run_single_sa_experiment(params):
+    """
+    Funzione wrapper per eseguire un singolo esperimento SA.
+    Necessaria per il multiprocessing.
+    """
+    N, max_iter, T0, alpha = params
+    return sa_nqueens(N, max_iter=max_iter, T0=T0, alpha=alpha)
+
+
+def test_parameter_combination_parallel(params):
+    """
+    Testa una singola combinazione di parametri GA con run paralleli.
+    """
+    N, fitness_mode, pop_size, max_gen, pc, pm, tournament_size, runs_tuning = params
+    
+    # Prepara i parametri per tutti i run
+    run_params = [(N, pop_size, max_gen, pc, pm, tournament_size, fitness_mode) 
+                  for _ in range(runs_tuning)]
+    
+    # Esegui i run in parallelo
+    with ProcessPoolExecutor(max_workers=min(NUM_PROCESSES, runs_tuning)) as executor:
+        results = list(executor.map(run_single_ga_experiment, run_params))
+    
+    # Calcola statistiche
+    successes = 0
+    gen_success = []
+    for s, gen, _, bestc, _ in results:
+        if s:
+            successes += 1
+            gen_success.append(gen)
+    
+    success_rate = successes / runs_tuning
+    avg_gen = statistics.mean(gen_success) if gen_success else None
+    
+    return {
+        "N": N,
+        "fitness_mode": fitness_mode,
+        "pop_size": pop_size,
+        "max_gen": max_gen,
+        "pc": pc,
+        "pm": pm,
+        "tournament_size": tournament_size,
+        "success_rate": success_rate,
+        "avg_gen_success": avg_gen,
+    }
+
+
+def tune_ga_for_N_parallel(
+    N,
+    fitness_mode,
+    pop_multipliers,
+    gen_multipliers,
+    pm_values,
+    pc,
+    tournament_size,
+    runs_tuning=10,
+):
+    """
+    Versione parallela di tune_ga_for_N.
+    Parallelizza sia le combinazioni di parametri che i run per ogni combinazione.
+    """
+    print(f"  Preparazione {len(pop_multipliers) * len(gen_multipliers) * len(pm_values)} combinazioni di parametri...")
+    
+    # Prepara tutte le combinazioni di parametri
+    param_combinations = []
+    for k in pop_multipliers:
+        pop_size = max(50, int(k * N))
+        for m in gen_multipliers:
+            max_gen = int(m * N)
+            for pm in pm_values:
+                param_combinations.append(
+                    (N, fitness_mode, pop_size, max_gen, pc, pm, tournament_size, runs_tuning)
+                )
+    
+    # Testa tutte le combinazioni in parallelo
+    print(f"  Esecuzione parallela con {NUM_PROCESSES} processi...")
+    with ProcessPoolExecutor(max_workers=NUM_PROCESSES) as executor:
+        candidates = list(executor.map(test_parameter_combination_parallel, param_combinations))
+    
+    # Trova la migliore combinazione
+    best = None
+    for candidate in candidates:
+        if best is None:
+            best = candidate
+        else:
+            # confronto: prima success_rate, poi avg_gen_success
+            if candidate["success_rate"] > best["success_rate"]:
+                best = candidate
+            elif candidate["success_rate"] == best["success_rate"]:
+                # se entrambi hanno successi, minimizza avg_gen_success
+                if candidate["avg_gen_success"] is not None and best["avg_gen_success"] is not None:
+                    if candidate["avg_gen_success"] < best["avg_gen_success"]:
+                        best = candidate
+    
+    print(f"  Migliore combinazione: pop_size={best['pop_size']}, max_gen={best['max_gen']}, pm={best['pm']}, success_rate={best['success_rate']:.3f}")
+    return best
+
+
+def tune_single_fitness(params):
+    """
+    Funzione wrapper per il tuning di una singola fitness.
+    Necessaria per il multiprocessing.
+    """
+    N, fitness_mode, pop_multipliers, gen_multipliers, pm_values, pc, tournament_size, runs_tuning = params
+    return fitness_mode, tune_ga_for_N_parallel(
+        N, fitness_mode, pop_multipliers, gen_multipliers, pm_values, pc, tournament_size, runs_tuning
+    )
+
+
+def tune_all_fitness_parallel(
+    N,
+    fitness_modes,
+    pop_multipliers,
+    gen_multipliers,
+    pm_values,
+    pc,
+    tournament_size,
+    runs_tuning=10,
+):
+    """
+    Fa il tuning di tutte le fitness contemporaneamente per un dato N.
+    Parallelizza il tuning di F1, F2, F3, F4, F5, F6 simultaneamente.
+    """
+    print(f"🚀 Tuning contemporaneo di {len(fitness_modes)} fitness per N={N}")
+    
+    # Prepara i parametri per tutte le fitness
+    tuning_params = []
+    for fitness_mode in fitness_modes:
+        tuning_params.append((
+            N, fitness_mode, pop_multipliers, gen_multipliers, pm_values, 
+            pc, tournament_size, runs_tuning
+        ))
+    
+    # Esegui il tuning di tutte le fitness in parallelo
+    print(f"  Utilizzando {min(NUM_PROCESSES, len(fitness_modes))} processi per {len(fitness_modes)} fitness...")
+    start_time = time.time()
+    
+    with ProcessPoolExecutor(max_workers=min(NUM_PROCESSES, len(fitness_modes))) as executor:
+        results = list(executor.map(tune_single_fitness, tuning_params))
+    
+    elapsed_time = time.time() - start_time
+    
+    # Organizza i risultati per fitness
+    best_params_per_fitness = {}
+    for fitness_mode, best_params in results:
+        best_params_per_fitness[fitness_mode] = best_params
+        print(f"  ✅ {fitness_mode}: success_rate={best_params['success_rate']:.3f}, "
+              f"pop_size={best_params['pop_size']}, pm={best_params['pm']}")
+    
+    print(f"🏁 Tuning contemporaneo completato in {elapsed_time:.1f}s per N={N}")
+    return best_params_per_fitness
+
+
+# ======================================================
 # 7. Esperimenti finali con parametri ottimali GA
 # ======================================================
 
@@ -580,6 +759,121 @@ def run_experiments_with_best_ga(
                     "evals": evals,
                 }
             )
+
+        ga_successes = [r for r in ga_runs if r["success"]]
+        ga_success_rate = len(ga_successes) / runs_ga
+        ga_avg_gen = (
+            statistics.mean(r["gen"] for r in ga_successes)
+            if ga_successes
+            else None
+        )
+        ga_avg_time = (
+            statistics.mean(r["time"] for r in ga_successes)
+            if ga_successes
+            else None
+        )
+
+        results["GA"][N] = {
+            "success_rate": ga_success_rate,
+            "avg_gen_success": ga_avg_gen,
+            "avg_time_success": ga_avg_time,
+            # Salviamo anche i parametri GA usati
+            "pop_size": pop_size,
+            "max_gen": max_gen,
+            "pm": pm,
+            "pc": pc,
+            "tournament_size": tsize,
+        }
+
+    return results
+
+
+def run_experiments_with_best_ga_parallel(
+    N_values,
+    runs_sa,
+    runs_ga,
+    bt_time_limit,
+    fitness_mode,
+    best_ga_params_for_N,
+):
+    """
+    Versione parallela di run_experiments_with_best_ga.
+    Parallelizza i run SA e GA per ogni N.
+    """
+    results = {"BT": {}, "SA": {}, "GA": {}}
+
+    for N in N_values:
+        print(f"=== (Final Parallel) N = {N}, GA fitness {fitness_mode} ===")
+
+        # ----- BT (sempre seriale, è veloce) -----
+        sol, nodes, t = bt_nqueens_first(N, time_limit=bt_time_limit)
+        results["BT"][N] = {
+            "solution_found": sol is not None,
+            "nodes": nodes,
+            "time": t,
+        }
+
+        # ----- SA Parallelo -----
+        print(f"  Eseguendo {runs_sa} run SA in parallelo...")
+        max_iter_sa = 2000 + 200 * N
+        sa_params = [(N, max_iter_sa, 1.0, 0.995) for _ in range(runs_sa)]
+        
+        with ProcessPoolExecutor(max_workers=NUM_PROCESSES) as executor:
+            sa_raw_results = list(executor.map(run_single_sa_experiment, sa_params))
+        
+        sa_runs = []
+        for s, steps, tt, bestc, evals in sa_raw_results:
+            sa_runs.append({
+                "success": s,
+                "steps": steps,
+                "time": tt,
+                "best_conflicts": bestc,
+                "evals": evals,
+            })
+
+        sa_successes = [r for r in sa_runs if r["success"]]
+        sa_success_rate = len(sa_successes) / runs_sa
+        sa_avg_steps = (
+            statistics.mean(r["steps"] for r in sa_successes)
+            if sa_successes
+            else None
+        )
+        sa_avg_time = (
+            statistics.mean(r["time"] for r in sa_successes)
+            if sa_successes
+            else None
+        )
+
+        results["SA"][N] = {
+            "success_rate": sa_success_rate,
+            "avg_steps_success": sa_avg_steps,
+            "avg_time_success": sa_avg_time,
+        }
+
+        # ----- GA Parallelo con parametri ottimali -----
+        print(f"  Eseguendo {runs_ga} run GA in parallelo...")
+        params = best_ga_params_for_N[N]
+        pop_size = params["pop_size"]
+        max_gen = params["max_gen"]
+        pm = params["pm"]
+        pc = params["pc"]
+        tsize = params["tournament_size"]
+
+        ga_params = [(N, pop_size, max_gen, pc, pm, tsize, fitness_mode) 
+                     for _ in range(runs_ga)]
+        
+        with ProcessPoolExecutor(max_workers=NUM_PROCESSES) as executor:
+            ga_raw_results = list(executor.map(run_single_ga_experiment, ga_params))
+        
+        ga_runs = []
+        for s, gen, tt, bestc, evals in ga_raw_results:
+            ga_runs.append({
+                "success": s,
+                "gen": gen,
+                "time": tt,
+                "best_conflicts": bestc,
+                "evals": evals,
+            })
 
         ga_successes = [r for r in ga_runs if r["success"]]
         ga_success_rate = len(ga_successes) / runs_ga
@@ -711,20 +1005,21 @@ def plot_and_save(results, N_values, fitness_mode, out_dir):
 
 
 # ======================================================
-# 9. Main: tuning + esperimenti finali per tutte le fitness
+# 9. Main: versione parallela del tuning + esperimenti finali
 # ======================================================
 
-if __name__ == "__main__":
+def main_sequential():
+    """Main originale sequenziale (mantenuto per confronto)"""
     os.makedirs(OUT_DIR, exist_ok=True)
 
     for fitness_mode in FITNESS_MODES:
         print("\n============================================")
-        print(f"TUNING GA per fitness mode: {fitness_mode}")
+        print(f"TUNING GA SEQUENZIALE per fitness mode: {fitness_mode}")
         print("============================================")
 
         # 1) Tuning per ogni N
         best_ga_params_for_N = {}
-        tuning_csv = os.path.join(OUT_DIR, f"tuning_GA_{fitness_mode}.csv")
+        tuning_csv = os.path.join(OUT_DIR, f"tuning_GA_{fitness_mode}_seq.csv")
         with open(tuning_csv, "w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow([
@@ -781,4 +1076,240 @@ if __name__ == "__main__":
         save_results_to_csv(results, N_VALUES, fitness_mode, OUT_DIR)
         plot_and_save(results, N_VALUES, fitness_mode, OUT_DIR)
 
-    print("\nTutti i tuning e gli esperimenti finali sono completati.")
+    print("\nTutti i tuning e gli esperimenti finali sequenziali sono completati.")
+
+
+def main_parallel():
+    """Main parallelo ottimizzato"""
+    os.makedirs(OUT_DIR, exist_ok=True)
+    
+    print(f"\n🚀 AVVIO VERSIONE PARALLELA (utilizzando {NUM_PROCESSES} processi)")
+    print(f"CPU disponibili: {multiprocessing.cpu_count()}")
+    
+    start_total = time.time()
+
+    # ======================================================
+    # FASE 1: TUNING PARALLELO PER TUTTE LE FITNESS
+    # ======================================================
+    print("\n" + "="*60)
+    print("FASE 1: TUNING GA PARALLELO PER TUTTE LE FITNESS")
+    print("="*60)
+    
+    # Dizionario per salvare i parametri ottimali di ogni fitness
+    all_best_params = {}
+    
+    for fitness_mode in FITNESS_MODES:
+        print(f"\n🔧 Tuning per fitness {fitness_mode}...")
+        fitness_start = time.time()
+
+        # Tuning parallelo per ogni N di questa fitness
+        best_ga_params_for_N = {}
+        tuning_csv = os.path.join(OUT_DIR, f"tuning_GA_{fitness_mode}.csv")
+        with open(tuning_csv, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "N",
+                "pop_size",
+                "max_gen",
+                "pm",
+                "pc",
+                "tournament_size",
+                "success_rate_tuning",
+                "avg_gen_success_tuning",
+            ])
+
+            for N in N_VALUES:
+                print(f"  🔧 Tuning N = {N}...")
+                tuning_start = time.time()
+                
+                best = tune_ga_for_N_parallel(
+                    N,
+                    fitness_mode,
+                    POP_MULTIPLIERS,
+                    GEN_MULTIPLIERS,
+                    PM_VALUES,
+                    PC_FIXED,
+                    TOURNAMENT_SIZE_FIXED,
+                    runs_tuning=RUNS_GA_TUNING,
+                )
+                
+                tuning_time = time.time() - tuning_start
+                best_ga_params_for_N[N] = best
+                print(f"     ✅ Completato in {tuning_time:.1f}s - Success rate: {best['success_rate']:.3f}")
+
+                writer.writerow([
+                    N,
+                    best["pop_size"],
+                    best["max_gen"],
+                    best["pm"],
+                    best["pc"],
+                    best["tournament_size"],
+                    best["success_rate"],
+                    best["avg_gen_success"],
+                ])
+
+        # Salva i parametri per questa fitness
+        all_best_params[fitness_mode] = best_ga_params_for_N
+        
+        fitness_time = time.time() - fitness_start
+        print(f"📄 Tuning {fitness_mode} completato in {fitness_time:.1f}s - CSV: {tuning_csv}")
+
+    # ======================================================
+    # FASE 2: ESPERIMENTI FINALI PARALLELI PER TUTTE LE FITNESS
+    # ======================================================
+    print(f"\n" + "="*60)
+    print("FASE 2: ESPERIMENTI FINALI PARALLELI")
+    print("="*60)
+    
+    for fitness_mode in FITNESS_MODES:
+        print(f"\n🧪 Esperimenti finali per {fitness_mode}...")
+        experiments_start = time.time()
+        
+        results = run_experiments_with_best_ga_parallel(
+            N_VALUES,
+            runs_sa=RUNS_SA_FINAL,
+            runs_ga=RUNS_GA_FINAL,
+            bt_time_limit=BT_TIME_LIMIT,
+            fitness_mode=fitness_mode,
+            best_ga_params_for_N=all_best_params[fitness_mode],
+        )
+        
+        experiments_time = time.time() - experiments_start
+        print(f"  ✅ Esperimenti completati in {experiments_time:.1f}s")
+
+        # Salva risultati finali
+        print(f"📊 Generazione grafici e CSV finali...")
+        save_results_to_csv(results, N_VALUES, fitness_mode, OUT_DIR)
+        plot_and_save(results, N_VALUES, fitness_mode, OUT_DIR)
+        print(f"  ✅ Risultati salvati per {fitness_mode}")
+
+    total_time = time.time() - start_total
+    print(f"\n🏁 PIPELINE PARALLELA COMPLETATA!")
+    print(f"⏱️  Tempo totale: {total_time:.1f}s ({total_time/60:.1f} minuti)")
+    print(f"📊 Fitness processate: {len(FITNESS_MODES)}")
+    print(f"🖥️  Processi utilizzati: {NUM_PROCESSES}")
+
+
+def main_concurrent_tuning():
+    """Main con tuning contemporaneo di tutte le fitness"""
+    os.makedirs(OUT_DIR, exist_ok=True)
+    
+    print(f"\n🚀 TUNING CONTEMPORANEO DI TUTTE LE FITNESS")
+    print(f"Fitness: {FITNESS_MODES}")
+    print(f"Processi: {NUM_PROCESSES}")
+    print(f"CPU disponibili: {multiprocessing.cpu_count()}")
+    
+    start_total = time.time()
+
+    # ======================================================
+    # FASE 1: TUNING CONTEMPORANEO PER TUTTI N
+    # ======================================================
+    print("\n" + "="*70)
+    print("FASE 1: TUNING CONTEMPORANEO PER TUTTE LE FITNESS")
+    print("="*70)
+    
+    # Dizionario per salvare i parametri ottimali: all_best_params[fitness_mode][N] = params
+    all_best_params = {fitness_mode: {} for fitness_mode in FITNESS_MODES}
+    
+    for N in N_VALUES:
+        print(f"\n🎯 Tuning contemporaneo per N = {N}")
+        print("-" * 50)
+        
+        # Tuning contemporaneo di tutte le fitness per questo N
+        fitness_results = tune_all_fitness_parallel(
+            N,
+            FITNESS_MODES,
+            POP_MULTIPLIERS,
+            GEN_MULTIPLIERS,
+            PM_VALUES,
+            PC_FIXED,
+            TOURNAMENT_SIZE_FIXED,
+            runs_tuning=RUNS_GA_TUNING,
+        )
+        
+        # Salva i risultati per ogni fitness
+        for fitness_mode, best_params in fitness_results.items():
+            all_best_params[fitness_mode][N] = best_params
+    
+    # Salva i file CSV di tuning per ogni fitness
+    print(f"\n💾 Salvando file CSV di tuning...")
+    for fitness_mode in FITNESS_MODES:
+        tuning_csv = os.path.join(OUT_DIR, f"tuning_GA_{fitness_mode}.csv")
+        with open(tuning_csv, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "N",
+                "pop_size",
+                "max_gen",
+                "pm",
+                "pc",
+                "tournament_size",
+                "success_rate_tuning",
+                "avg_gen_success_tuning",
+            ])
+            
+            for N in N_VALUES:
+                best = all_best_params[fitness_mode][N]
+                writer.writerow([
+                    N,
+                    best["pop_size"],
+                    best["max_gen"],
+                    best["pm"],
+                    best["pc"],
+                    best["tournament_size"],
+                    best["success_rate"],
+                    best["avg_gen_success"],
+                ])
+        print(f"  ✅ {tuning_csv}")
+
+    # ======================================================
+    # FASE 2: ESPERIMENTI FINALI PER TUTTE LE FITNESS
+    # ======================================================
+    print(f"\n" + "="*70)
+    print("FASE 2: ESPERIMENTI FINALI PER TUTTE LE FITNESS")
+    print("="*70)
+    
+    for fitness_mode in FITNESS_MODES:
+        print(f"\n🧪 Esperimenti finali per {fitness_mode}...")
+        experiments_start = time.time()
+        
+        results = run_experiments_with_best_ga_parallel(
+            N_VALUES,
+            runs_sa=RUNS_SA_FINAL,
+            runs_ga=RUNS_GA_FINAL,
+            bt_time_limit=BT_TIME_LIMIT,
+            fitness_mode=fitness_mode,
+            best_ga_params_for_N=all_best_params[fitness_mode],
+        )
+        
+        experiments_time = time.time() - experiments_start
+        print(f"  ✅ Esperimenti completati in {experiments_time:.1f}s")
+
+        # Salva risultati finali
+        print(f"📊 Generazione grafici e CSV finali...")
+        save_results_to_csv(results, N_VALUES, fitness_mode, OUT_DIR)
+        plot_and_save(results, N_VALUES, fitness_mode, OUT_DIR)
+        print(f"  ✅ Risultati salvati per {fitness_mode}")
+
+    total_time = time.time() - start_total
+    print(f"\n🏆 TUNING CONTEMPORANEO COMPLETATO!")
+    print(f"⏱️  Tempo totale: {total_time:.1f}s ({total_time/60:.1f} minuti)")
+    print(f"📊 Fitness processate contemporaneamente: {len(FITNESS_MODES)}")
+    print(f"🖥️  Processi utilizzati: {NUM_PROCESSES}")
+
+
+if __name__ == "__main__":
+    # Scelta tra le diverse modalità
+    import sys
+    
+    if len(sys.argv) > 1 and sys.argv[1] == "--sequential":
+        print("🔄 Esecuzione in modalità SEQUENZIALE")
+        main_sequential()
+    elif len(sys.argv) > 1 and sys.argv[1] == "--parallel":
+        print("🚀 Esecuzione in modalità PARALLELA (vecchia)")
+        main_parallel()
+    else:
+        print("🚀 Esecuzione in modalità TUNING CONTEMPORANEO (default)")
+        print("   Usa --sequential per la versione sequenziale")
+        print("   Usa --parallel per la versione parallela classica")
+        main_concurrent_tuning()
