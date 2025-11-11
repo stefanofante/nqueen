@@ -1,11 +1,3 @@
-Sì che si può 😄
-Ti preparo **un unico file markdown completo**, stile relazione/tesi, che puoi salvare come `relazione_nqueens.md` o usarlo come README/wiki.
-
-Lo scrivo in italiano, con sezioni già pronte e punti dove puoi inserire **tabelle, valori reali e grafici**.
-
----
-
-````markdown
 ---
 title: "Risoluzione del problema N-Queens con Backtracking, Simulated Annealing e Algoritmo Genetico"
 author: "Tuo Nome"
