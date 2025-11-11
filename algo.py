@@ -160,7 +160,7 @@ def set_timeouts(bt_timeout=None, sa_timeout=30.0, ga_timeout=60.0, experiment_t
     GA_TIME_LIMIT = ga_timeout
     EXPERIMENT_TIMEOUT = experiment_timeout
     
-    print(f"✅ Timeout configurati:")
+    print(f"Timeout settings configured:")
     print(f"   • BT: {BT_TIME_LIMIT}s" if BT_TIME_LIMIT else "   • BT: illimitato")
     print(f"   • SA: {SA_TIME_LIMIT}s" if SA_TIME_LIMIT else "   • SA: illimitato")
     print(f"   • GA: {GA_TIME_LIMIT}s" if GA_TIME_LIMIT else "   • GA: illimitato")
@@ -883,7 +883,7 @@ def run_with_timeout(func, args, timeout):
             result = future.result(timeout=timeout)
             return True, result
     except Exception as e:
-        print(f"⚠️  Timeout o errore durante esecuzione: {e}")
+        print(f"WARNING: Timeout or error during execution: {e}")
         return False, None
 
 
@@ -1999,8 +1999,8 @@ def plot_comprehensive_analysis(results, N_values, fitness_mode, out_dir, raw_ru
         plt.close()
         print(f"✓ Grafico BT teorico vs pratico salvato: {fname}")
     
-    print(f"\n🎯 Analisi completa generata in: {out_dir}")
-    print(f"📊 {9} grafici base creati per fitness F{fitness_mode}")
+    print(f"\nComplete analysis generated in: {out_dir}")
+    print(f"Generated {9} base charts for fitness F{fitness_mode}")
 
 
 def plot_fitness_comparison(all_results, N_values, out_dir, raw_runs=None):
@@ -2174,8 +2174,8 @@ def plot_fitness_comparison(all_results, N_values, out_dir, raw_runs=None):
     plt.close()
     print(f"✓ Evoluzione tutte fitness salvato: {fname}")
     
-    print(f"\n🔬 Analisi confronto fitness completata")
-    print(f"📊 Generati grafici per confronto F1-F6")
+    print(f"\nFitness function comparison analysis completed")
+    print(f"Generated comparison charts for F1-F6")
 
 
 def plot_and_save(results, N_values, fitness_mode, out_dir):
