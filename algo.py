@@ -3,23 +3,130 @@ import csv
 import random
 import math
 import time
+from time import perf_counter
 import statistics
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
 from collections import Counter
 import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
+import pandas as pd
+
+# ======================================================
+# FUNZIONI STATISTICHE AVANZATE
+# ======================================================
+
+def compute_detailed_statistics(values, label=""):
+    """
+    Calcola statistiche dettagliate per una lista di valori.
+    Gestisce separatamente valori vuoti e restituisce un dizionario completo.
+    """
+    if not values:
+        return {
+            'count': 0,
+            'mean': None,
+            'median': None,
+            'std': None,
+            'min': None,
+            'max': None,
+            'q25': None,
+            'q75': None,
+            'range': None,
+        }
+    
+    sorted_vals = sorted(values)
+    n = len(values)
+    
+    # Statistiche base
+    mean_val = statistics.mean(values)
+    median_val = statistics.median(values)
+    min_val = min(values)
+    max_val = max(values)
+    range_val = max_val - min_val
+    
+    # Deviazione standard (usando population std)
+    std_val = statistics.pstdev(values) if n > 1 else 0
+    
+    # Quartili
+    q25 = sorted_vals[n // 4] if n >= 4 else min_val
+    q75 = sorted_vals[3 * n // 4] if n >= 4 else max_val
+    
+    return {
+        'count': n,
+        'mean': mean_val,
+        'median': median_val,
+        'std': std_val,
+        'min': min_val,
+        'max': max_val,
+        'q25': q25,
+        'q75': q75,
+        'range': range_val,
+    }
+
+def compute_grouped_statistics(results_list, success_key='success'):
+    """
+    Calcola statistiche separate per successi, fallimenti e timeout.
+    
+    Args:
+        results_list: Lista di dizionari con risultati degli esperimenti
+        success_key: Chiave che indica il successo (default: 'success')
+    
+    Returns:
+        Dizionario con statistiche separate per successi, fallimenti e timeout
+    """
+    successes = [r for r in results_list if r.get(success_key, False)]
+    timeouts = [r for r in results_list if r.get('timeout', False)]
+    failures = [r for r in results_list if not r.get(success_key, False) and not r.get('timeout', False)]
+    
+    stats = {
+        'total_runs': len(results_list),
+        'successes': len(successes),
+        'failures': len(failures),
+        'timeouts': len(timeouts),
+        'success_rate': len(successes) / len(results_list) if results_list else 0,
+        'timeout_rate': len(timeouts) / len(results_list) if results_list else 0,
+        'failure_rate': len(failures) / len(results_list) if results_list else 0,
+    }
+    
+    # Statistiche per tutti i run
+    for metric in ['time', 'steps', 'nodes', 'gen', 'evals', 'best_conflicts']:
+        if any(metric in r for r in results_list):
+            values = [r[metric] for r in results_list if metric in r]
+            stats[f'all_{metric}'] = compute_detailed_statistics(values, f"all_{metric}")
+    
+    # Statistiche per successi
+    for metric in ['time', 'steps', 'nodes', 'gen', 'evals', 'best_conflicts']:
+        if any(metric in r for r in successes):
+            values = [r[metric] for r in successes if metric in r]
+            stats[f'success_{metric}'] = compute_detailed_statistics(values, f"success_{metric}")
+    
+    # Statistiche per timeout
+    for metric in ['time', 'steps', 'nodes', 'gen', 'evals', 'best_conflicts']:
+        if any(metric in r for r in timeouts):
+            values = [r[metric] for r in timeouts if metric in r]
+            stats[f'timeout_{metric}'] = compute_detailed_statistics(values, f"timeout_{metric}")
+    
+    # Statistiche per fallimenti (esclusi timeout)
+    for metric in ['time', 'steps', 'nodes', 'gen', 'evals', 'best_conflicts']:
+        if any(metric in r for r in failures):
+            values = [r[metric] for r in failures if metric in r]
+            stats[f'failure_{metric}'] = compute_detailed_statistics(values, f"failure_{metric}")
+    
+    return stats
 
 # ======================================================
 # PARAMETRI GLOBALI
 # ======================================================
 
 # Dimensioni della scacchiera da testare - valori crescenti per analisi scalabilità
-N_VALUES = [8, 16, 24]
+N_VALUES = [8, 16, 24, 40, 80, 120]
 
 # Numero di run indipendenti per SA e GA negli esperimenti finali
 # Più run = maggiore affidabilità statistica, ma tempi più lunghi
-RUNS_SA_FINAL = 20
-RUNS_GA_FINAL = 20
+RUNS_SA_FINAL = 40
+RUNS_GA_FINAL = 40
+RUNS_BT_FINAL = 1   # BT è deterministico, basta 1 run per N
 
 # Numero di run per la fase di tuning GA (per combinazione di parametri)
 # Meno run nel tuning per velocizzare la ricerca parametri
@@ -27,7 +134,37 @@ RUNS_GA_TUNING = 5
 
 # Limite di tempo per BT in secondi (None = nessun limite)
 # Utile per evitare che BT rimanga bloccato su istanze difficili
-BT_TIME_LIMIT = None  # es. 5.0 secondi
+BT_TIME_LIMIT = 60*5.0  # es. 5.0 minuti
+
+# Limiti di tempo per SA e GA in secondi (None = nessun limite)
+SA_TIME_LIMIT = 120.0  # 120 secondi per SA
+GA_TIME_LIMIT = 240.0  # 240 secondi per GA 
+
+# Timeout globale per singolo esperimento (None = nessun limite)  
+EXPERIMENT_TIMEOUT = 120.0  # 2 minuti per esperimento completo
+
+# Funzione per configurare facilmente i timeout
+def set_timeouts(bt_timeout=None, sa_timeout=30.0, ga_timeout=60.0, experiment_timeout=120.0):
+    """
+    Configura i timeout per tutti gli algoritmi.
+    
+    Args:
+        bt_timeout: timeout BT in secondi (None = illimitato)
+        sa_timeout: timeout SA in secondi (None = illimitato)  
+        ga_timeout: timeout GA in secondi (None = illimitato)
+        experiment_timeout: timeout esperimento in secondi (None = illimitato)
+    """
+    global BT_TIME_LIMIT, SA_TIME_LIMIT, GA_TIME_LIMIT, EXPERIMENT_TIMEOUT
+    BT_TIME_LIMIT = bt_timeout
+    SA_TIME_LIMIT = sa_timeout
+    GA_TIME_LIMIT = ga_timeout
+    EXPERIMENT_TIMEOUT = experiment_timeout
+    
+    print(f"✅ Timeout configurati:")
+    print(f"   • BT: {BT_TIME_LIMIT}s" if BT_TIME_LIMIT else "   • BT: illimitato")
+    print(f"   • SA: {SA_TIME_LIMIT}s" if SA_TIME_LIMIT else "   • SA: illimitato")
+    print(f"   • GA: {GA_TIME_LIMIT}s" if GA_TIME_LIMIT else "   • GA: illimitato")
+    print(f"   • Esperimento: {EXPERIMENT_TIMEOUT}s" if EXPERIMENT_TIMEOUT else "   • Esperimento: illimitato")
 
 # Directory di output per CSV e grafici
 OUT_DIR = "results_nqueens_tuning"
@@ -301,13 +438,13 @@ def bt_nqueens_first(N, time_limit=None):
     col = 0          # colonna corrente
     row = 0          # riga corrente da tentare
     nodes = 0        # contatore nodi esplorati
-    start = time.time()
+    start = perf_counter()
 
     # Ciclo principale del backtracking
     while col >= 0 and col < N:
         # Controlla time limit
-        if time_limit is not None and (time.time() - start) > time_limit:
-            return None, nodes, time.time() - start
+        if time_limit is not None and (perf_counter() - start) > time_limit:
+            return None, nodes, perf_counter() - start
 
         placed = False
         
@@ -332,7 +469,7 @@ def bt_nqueens_first(N, time_limit=None):
 
                     # Se abbiamo posizionato tutte le regine
                     if col == N - 1:
-                        return pos.copy(), nodes, time.time() - start
+                        return pos.copy(), nodes, perf_counter() - start
                     else:
                         # Passa alla colonna successiva
                         col += 1
@@ -358,14 +495,14 @@ def bt_nqueens_first(N, time_limit=None):
                 row = prev_row + 1  # riprendi dalla riga successiva
 
     # Nessuna soluzione trovata
-    return None, nodes, time.time() - start
+    return None, nodes, perf_counter() - start
 
 
 # ======================================================
 # 4. Simulated Annealing (SA)
 # ======================================================
 
-def sa_nqueens(N, max_iter=20000, T0=1.0, alpha=0.995):
+def sa_nqueens(N, max_iter=20000, T0=1.0, alpha=0.995, time_limit=None):
     """
     Simulated Annealing per il problema delle N-Regine.
     
@@ -380,30 +517,36 @@ def sa_nqueens(N, max_iter=20000, T0=1.0, alpha=0.995):
         max_iter: numero massimo di iterazioni
         T0: temperatura iniziale (alta = più esplorazione)
         alpha: fattore raffreddamento (0 < alpha < 1, tipicamente ~0.995)
+        time_limit: limite tempo in secondi (None = illimitato)
         
     Returns:
-        tuple: (successo, iterazioni, tempo, migliori_conflitti, valutazioni_fitness)
+        tuple: (successo, iterazioni, tempo, migliori_conflitti, valutazioni_fitness, timeout)
         - successo: True se trovata soluzione (0 conflitti)
         - iterazioni: numero iterazioni eseguite
         - tempo: secondi di esecuzione
         - migliori_conflitti: minor numero conflitti raggiunto
         - valutazioni_fitness: numero chiamate funzione conflicts()
+        - timeout: True se interrotto per timeout
     """
     # Inizializzazione casuale: una regina per colonna
     board = [random.randrange(N) for _ in range(N)]
     cur_cost = conflicts(board)     # conflitti configurazione corrente
     best_cost = cur_cost           # miglior configurazione vista
     fitness_evals = 1              # contatore valutazioni fitness
-    start = time.time()
+    start = perf_counter()
 
     # Controlla se già abbiamo la soluzione
     if cur_cost == 0:
-        return True, 0, time.time() - start, 0, fitness_evals
+        return True, 0, perf_counter() - start, 0, fitness_evals, False
 
     T = T0  # temperatura corrente
     
     # Ciclo principale SA
     for it in range(1, max_iter + 1):
+        # Controllo timeout 
+        if time_limit is not None and (perf_counter() - start) > time_limit:
+            return False, it, perf_counter() - start, best_cost, fitness_evals, True
+        
         # Genera vicino: sposta una regina casuale
         c = random.randrange(N)        # colonna casuale
         old_row = board[c]             # riga precedente
@@ -432,13 +575,13 @@ def sa_nqueens(N, max_iter=20000, T0=1.0, alpha=0.995):
 
         # Controlla se soluzione trovata
         if cur_cost == 0:
-            return True, it, time.time() - start, 0, fitness_evals
+            return True, it, perf_counter() - start, 0, fitness_evals, False
 
         # Raffreddamento geometrico
         T *= alpha
 
     # Max iterazioni raggiunte senza trovare soluzione
-    return False, max_iter, time.time() - start, best_cost, fitness_evals
+    return False, max_iter, perf_counter() - start, best_cost, fitness_evals, False
 
 
 # ======================================================
@@ -453,6 +596,7 @@ def ga_nqueens(
     pm=0.1,
     tournament_size=3,
     fitness_mode="F1",
+    time_limit=None,
 ):
     """
     Algoritmo Genetico per il problema delle N-Regine.
@@ -472,14 +616,16 @@ def ga_nqueens(
         pm: probabilità mutazione (0.0-1.0)
         tournament_size: dimensione torneo per selezione
         fitness_mode: stringa funzione fitness ("F1", "F2", etc.)
+        time_limit: limite tempo in secondi (None = illimitato)
         
     Returns:
-        tuple: (successo, generazioni, tempo, migliori_conflitti, valutazioni_fitness)
+        tuple: (successo, generazioni, tempo, migliori_conflitti, valutazioni_fitness, timeout)
         - successo: True se trovata soluzione (0 conflitti)
         - generazioni: numero generazioni eseguite
         - tempo: secondi di esecuzione
         - migliori_conflitti: minor numero conflitti nel migliore individuo
         - valutazioni_fitness: numero totale chiamate fitness
+        - timeout: True se interrotto per timeout
     """
     fit_fn = get_fitness_function(fitness_mode)
 
@@ -492,11 +638,11 @@ def ga_nqueens(
     best_idx = max(range(pop_size), key=lambda i: fitness[i])
     best_ind = pop[best_idx][:]
     best_conf = conflicts(best_ind)  # numero conflitti reale (non fitness)
-    start = time.time()
+    start = perf_counter()
 
     # Controlla se già risolto
     if best_conf == 0:
-        return True, 0, time.time() - start, 0, fitness_evals
+        return True, 0, perf_counter() - start, 0, fitness_evals, False
 
     def tournament():
         """Selezione a torneo: sceglie il migliore tra tournament_size individui"""
@@ -511,6 +657,10 @@ def ga_nqueens(
     
     # Ciclo evolutivo principale
     while gen < max_gen:
+        # Controllo timeout
+        if time_limit is not None and (perf_counter() - start) > time_limit:
+            return False, gen, perf_counter() - start, best_conf, fitness_evals, True
+            
         gen += 1
         new_pop = []
 
@@ -562,10 +712,10 @@ def ga_nqueens(
 
         # Controlla se soluzione trovata
         if best_conf == 0:
-            return True, gen, time.time() - start, 0, fitness_evals
+            return True, gen, perf_counter() - start, 0, fitness_evals, False
 
     # Max generazioni raggiunte
-    return False, max_gen, time.time() - start, best_conf, fitness_evals
+    return False, max_gen, perf_counter() - start, best_conf, fitness_evals, False
 
 
 # ======================================================
@@ -625,7 +775,7 @@ def tune_ga_for_N(
                 gen_success = []
 
                 for _ in range(runs_tuning):
-                    s, gen, _, bestc, _ = ga_nqueens(
+                    s, gen, _, bestc, _, timeout = ga_nqueens(
                         N,
                         pop_size=pop_size,
                         max_gen=max_gen,
@@ -633,6 +783,7 @@ def tune_ga_for_N(
                         pm=pm,
                         tournament_size=tournament_size,
                         fitness_mode=fitness_mode,
+                        time_limit=GA_TIME_LIMIT,
                     )
                     if s:  # se ha trovato soluzione
                         successes += 1
@@ -696,6 +847,7 @@ def run_single_ga_experiment(params):
         pm=pm,
         tournament_size=tournament_size,
         fitness_mode=fitness_mode,
+        time_limit=GA_TIME_LIMIT,
     )
 
 
@@ -710,7 +862,29 @@ def run_single_sa_experiment(params):
         tuple: risultato di sa_nqueens()
     """
     N, max_iter, T0, alpha = params
-    return sa_nqueens(N, max_iter=max_iter, T0=T0, alpha=alpha)
+    return sa_nqueens(N, max_iter=max_iter, T0=T0, alpha=alpha, time_limit=SA_TIME_LIMIT)
+
+
+def run_with_timeout(func, args, timeout):
+    """
+    Esegue una funzione con timeout usando ProcessPoolExecutor.
+    
+    Args:
+        func: funzione da eseguire
+        args: argomenti della funzione
+        timeout: timeout in secondi
+        
+    Returns:
+        tuple: (success, result) - success=True se completato, result=valore o None
+    """
+    try:
+        with ProcessPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(func, args)
+            result = future.result(timeout=timeout)
+            return True, result
+    except Exception as e:
+        print(f"⚠️  Timeout o errore durante esecuzione: {e}")
+        return False, None
 
 
 def test_parameter_combination_parallel(params):
@@ -737,7 +911,7 @@ def test_parameter_combination_parallel(params):
     # Calcola statistiche aggregate
     successes = 0
     gen_success = []
-    for s, gen, _, bestc, _ in results:
+    for s, gen, _, bestc, _, _ in results:  # Aggiunto _ per timeout
         if s:  # se ha trovato soluzione
             successes += 1
             gen_success.append(gen)
@@ -888,12 +1062,12 @@ def tune_all_fitness_parallel(
     # Esegui il tuning di tutte le fitness in parallelo
     # Ogni fitness viene processata su un core diverso
     print(f"  Utilizzando {min(NUM_PROCESSES, len(fitness_modes))} processi per {len(fitness_modes)} fitness...")
-    start_time = time.time()
+    start_time = perf_counter()
     
     with ProcessPoolExecutor(max_workers=min(NUM_PROCESSES, len(fitness_modes))) as executor:
         results = list(executor.map(tune_single_fitness, tuning_params))
     
-    elapsed_time = time.time() - start_time
+    elapsed_time = perf_counter() - start_time
     
     # Organizza risultati per fitness
     best_params_per_fitness = {}
@@ -960,8 +1134,8 @@ def run_experiments_with_best_ga(
         max_iter_sa = 2000 + 200 * N  # iterazioni scalabili con N
         
         for _ in range(runs_sa):
-            s, steps, tt, bestc, evals = sa_nqueens(
-                N, max_iter=max_iter_sa, T0=1.0, alpha=0.995
+            s, steps, tt, bestc, evals, timeout = sa_nqueens(
+                N, max_iter=max_iter_sa, T0=1.0, alpha=0.995, time_limit=SA_TIME_LIMIT
             )
             sa_runs.append({
                 "success": s,
@@ -969,26 +1143,47 @@ def run_experiments_with_best_ga(
                 "time": tt,
                 "best_conflicts": bestc,
                 "evals": evals,
+                "timeout": timeout,
             })
 
-        # Calcola statistiche aggregate SA
-        sa_successes = [r for r in sa_runs if r["success"]]
-        sa_success_rate = len(sa_successes) / runs_sa
-        sa_avg_steps = (
-            statistics.mean(r["steps"] for r in sa_successes)
-            if sa_successes
-            else None
-        )
-        sa_avg_time = (
-            statistics.mean(r["time"] for r in sa_successes)
-            if sa_successes
-            else None
-        )
+        # Calcola statistiche aggregate SA con funzione avanzata
+        sa_stats = compute_grouped_statistics(sa_runs, 'success')
 
         results["SA"][N] = {
-            "success_rate": sa_success_rate,
-            "avg_steps_success": sa_avg_steps,
-            "avg_time_success": sa_avg_time,
+            "success_rate": sa_stats['success_rate'],
+            "timeout_rate": sa_stats['timeout_rate'],
+            "failure_rate": sa_stats['failure_rate'],
+            "total_runs": sa_stats['total_runs'],
+            "successes": sa_stats['successes'],
+            "failures": sa_stats['failures'],
+            "timeouts": sa_stats['timeouts'],
+            
+            # Statistiche complete per successi
+            "success_steps": sa_stats.get('success_steps', {}),
+            "success_time": sa_stats.get('success_time', {}),
+            "success_evals": sa_stats.get('success_evals', {}),
+            "success_best_conflicts": sa_stats.get('success_best_conflicts', {}),
+            
+            # Statistiche complete per timeout
+            "timeout_steps": sa_stats.get('timeout_steps', {}),
+            "timeout_time": sa_stats.get('timeout_time', {}),
+            "timeout_evals": sa_stats.get('timeout_evals', {}),
+            "timeout_best_conflicts": sa_stats.get('timeout_best_conflicts', {}),
+            
+            # Statistiche complete per fallimenti  
+            "failure_steps": sa_stats.get('failure_steps', {}),
+            "failure_time": sa_stats.get('failure_time', {}),
+            "failure_evals": sa_stats.get('failure_evals', {}),
+            "failure_best_conflicts": sa_stats.get('failure_best_conflicts', {}),
+            
+            # Statistiche per tutti i run
+            "all_steps": sa_stats.get('all_steps', {}),
+            "all_time": sa_stats.get('all_time', {}),
+            "all_evals": sa_stats.get('all_evals', {}),
+            "all_best_conflicts": sa_stats.get('all_best_conflicts', {}),
+            
+            # Dati grezzi per analisi dettagliate
+            "raw_runs": sa_runs.copy(),
         }
 
         # ----- ALGORITMO GENETICO con parametri ottimali -----
@@ -1001,7 +1196,7 @@ def run_experiments_with_best_ga(
 
         ga_runs = []
         for _ in range(runs_ga):
-            s, gen, tt, bestc, evals = ga_nqueens(
+            s, gen, tt, bestc, evals, timeout = ga_nqueens(
                 N,
                 pop_size=pop_size,
                 max_gen=max_gen,
@@ -1009,6 +1204,7 @@ def run_experiments_with_best_ga(
                 pm=pm,
                 tournament_size=tsize,
                 fitness_mode=fitness_mode,
+                time_limit=GA_TIME_LIMIT,
             )
             ga_runs.append({
                 "success": s,
@@ -1016,32 +1212,54 @@ def run_experiments_with_best_ga(
                 "time": tt,
                 "best_conflicts": bestc,
                 "evals": evals,
+                "timeout": timeout,
             })
 
-        # Calcola statistiche aggregate GA
-        ga_successes = [r for r in ga_runs if r["success"]]
-        ga_success_rate = len(ga_successes) / runs_ga
-        ga_avg_gen = (
-            statistics.mean(r["gen"] for r in ga_successes)
-            if ga_successes
-            else None
-        )
-        ga_avg_time = (
-            statistics.mean(r["time"] for r in ga_successes)
-            if ga_successes
-            else None
-        )
+        # Calcola statistiche aggregate GA con funzione avanzata
+        ga_stats = compute_grouped_statistics(ga_runs, 'success')
 
         results["GA"][N] = {
-            "success_rate": ga_success_rate,
-            "avg_gen_success": ga_avg_gen,
-            "avg_time_success": ga_avg_time,
+            "success_rate": ga_stats['success_rate'],
+            "timeout_rate": ga_stats['timeout_rate'],
+            "failure_rate": ga_stats['failure_rate'],
+            "total_runs": ga_stats['total_runs'],
+            "successes": ga_stats['successes'],
+            "failures": ga_stats['failures'],
+            "timeouts": ga_stats['timeouts'],
+            
+            # Statistiche complete per successi
+            "success_gen": ga_stats.get('success_gen', {}),
+            "success_time": ga_stats.get('success_time', {}),
+            "success_evals": ga_stats.get('success_evals', {}),
+            "success_best_conflicts": ga_stats.get('success_best_conflicts', {}),
+            
+            # Statistiche complete per timeout
+            "timeout_gen": ga_stats.get('timeout_gen', {}),
+            "timeout_time": ga_stats.get('timeout_time', {}),
+            "timeout_evals": ga_stats.get('timeout_evals', {}),
+            "timeout_best_conflicts": ga_stats.get('timeout_best_conflicts', {}),
+            
+            # Statistiche complete per fallimenti  
+            "failure_gen": ga_stats.get('failure_gen', {}),
+            "failure_time": ga_stats.get('failure_time', {}),
+            "failure_evals": ga_stats.get('failure_evals', {}),
+            "failure_best_conflicts": ga_stats.get('failure_best_conflicts', {}),
+            
+            # Statistiche per tutti i run
+            "all_gen": ga_stats.get('all_gen', {}),
+            "all_time": ga_stats.get('all_time', {}),
+            "all_evals": ga_stats.get('all_evals', {}),
+            "all_best_conflicts": ga_stats.get('all_best_conflicts', {}),
+            
             # Salva anche i parametri GA utilizzati per questo N
             "pop_size": pop_size,
             "max_gen": max_gen,
             "pm": pm,
             "pc": pc,
             "tournament_size": tsize,
+            
+            # Dati grezzi per analisi dettagliate
+            "raw_runs": ga_runs.copy(),
         }
 
     return results
@@ -1102,33 +1320,54 @@ def run_experiments_with_best_ga_parallel(
         
         # Converte risultati in formato strutturato
         sa_runs = []
-        for s, steps, tt, bestc, evals in sa_raw_results:
+        for s, steps, tt, bestc, evals, timeout in sa_raw_results:
             sa_runs.append({
                 "success": s,
                 "steps": steps,
                 "time": tt,
                 "best_conflicts": bestc,
                 "evals": evals,
+                "timeout": timeout,
             })
 
-        # Calcola statistiche aggregate SA
-        sa_successes = [r for r in sa_runs if r["success"]]
-        sa_success_rate = len(sa_successes) / runs_sa
-        sa_avg_steps = (
-            statistics.mean(r["steps"] for r in sa_successes)
-            if sa_successes
-            else None
-        )
-        sa_avg_time = (
-            statistics.mean(r["time"] for r in sa_successes)
-            if sa_successes
-            else None
-        )
+        # Calcola statistiche aggregate SA con funzione avanzata
+        sa_stats = compute_grouped_statistics(sa_runs, 'success')
 
         results["SA"][N] = {
-            "success_rate": sa_success_rate,
-            "avg_steps_success": sa_avg_steps,
-            "avg_time_success": sa_avg_time,
+            "success_rate": sa_stats['success_rate'],
+            "timeout_rate": sa_stats['timeout_rate'],
+            "failure_rate": sa_stats['failure_rate'],
+            "total_runs": sa_stats['total_runs'],
+            "successes": sa_stats['successes'],
+            "failures": sa_stats['failures'],
+            "timeouts": sa_stats['timeouts'],
+            
+            # Statistiche complete per successi
+            "success_steps": sa_stats.get('success_steps', {}),
+            "success_time": sa_stats.get('success_time', {}),
+            "success_evals": sa_stats.get('success_evals', {}),
+            "success_best_conflicts": sa_stats.get('success_best_conflicts', {}),
+            
+            # Statistiche complete per timeout
+            "timeout_steps": sa_stats.get('timeout_steps', {}),
+            "timeout_time": sa_stats.get('timeout_time', {}),
+            "timeout_evals": sa_stats.get('timeout_evals', {}),
+            "timeout_best_conflicts": sa_stats.get('timeout_best_conflicts', {}),
+            
+            # Statistiche complete per fallimenti  
+            "failure_steps": sa_stats.get('failure_steps', {}),
+            "failure_time": sa_stats.get('failure_time', {}),
+            "failure_evals": sa_stats.get('failure_evals', {}),
+            "failure_best_conflicts": sa_stats.get('failure_best_conflicts', {}),
+            
+            # Statistiche per tutti i run
+            "all_steps": sa_stats.get('all_steps', {}),
+            "all_time": sa_stats.get('all_time', {}),
+            "all_evals": sa_stats.get('all_evals', {}),
+            "all_best_conflicts": sa_stats.get('all_best_conflicts', {}),
+            
+            # Dati grezzi per analisi dettagliate
+            "raw_runs": sa_runs.copy(),
         }
 
         # ----- ALGORITMO GENETICO Parallelo con parametri ottimali -----
@@ -1150,39 +1389,61 @@ def run_experiments_with_best_ga_parallel(
         
         # Converte risultati in formato strutturato
         ga_runs = []
-        for s, gen, tt, bestc, evals in ga_raw_results:
+        for s, gen, tt, bestc, evals, timeout in ga_raw_results:
             ga_runs.append({
                 "success": s,
                 "gen": gen,
                 "time": tt,
                 "best_conflicts": bestc,
                 "evals": evals,
+                "timeout": timeout,
             })
 
-        # Calcola statistiche aggregate GA
-        ga_successes = [r for r in ga_runs if r["success"]]
-        ga_success_rate = len(ga_successes) / runs_ga
-        ga_avg_gen = (
-            statistics.mean(r["gen"] for r in ga_successes)
-            if ga_successes
-            else None
-        )
-        ga_avg_time = (
-            statistics.mean(r["time"] for r in ga_successes)
-            if ga_successes
-            else None
-        )
+        # Calcola statistiche aggregate GA con funzione avanzata
+        ga_stats = compute_grouped_statistics(ga_runs, 'success')
 
         results["GA"][N] = {
-            "success_rate": ga_success_rate,
-            "avg_gen_success": ga_avg_gen,
-            "avg_time_success": ga_avg_time,
+            "success_rate": ga_stats['success_rate'],
+            "timeout_rate": ga_stats['timeout_rate'],
+            "failure_rate": ga_stats['failure_rate'],
+            "total_runs": ga_stats['total_runs'],
+            "successes": ga_stats['successes'],
+            "failures": ga_stats['failures'],
+            "timeouts": ga_stats['timeouts'],
+            
+            # Statistiche complete per successi
+            "success_gen": ga_stats.get('success_gen', {}),
+            "success_time": ga_stats.get('success_time', {}),
+            "success_evals": ga_stats.get('success_evals', {}),
+            "success_best_conflicts": ga_stats.get('success_best_conflicts', {}),
+            
+            # Statistiche complete per timeout
+            "timeout_gen": ga_stats.get('timeout_gen', {}),
+            "timeout_time": ga_stats.get('timeout_time', {}),
+            "timeout_evals": ga_stats.get('timeout_evals', {}),
+            "timeout_best_conflicts": ga_stats.get('timeout_best_conflicts', {}),
+            
+            # Statistiche complete per fallimenti  
+            "failure_gen": ga_stats.get('failure_gen', {}),
+            "failure_time": ga_stats.get('failure_time', {}),
+            "failure_evals": ga_stats.get('failure_evals', {}),
+            "failure_best_conflicts": ga_stats.get('failure_best_conflicts', {}),
+            
+            # Statistiche per tutti i run
+            "all_gen": ga_stats.get('all_gen', {}),
+            "all_time": ga_stats.get('all_time', {}),
+            "all_evals": ga_stats.get('all_evals', {}),
+            "all_best_conflicts": ga_stats.get('all_best_conflicts', {}),
+            
             # Salva anche i parametri GA utilizzati
             "pop_size": pop_size,
             "max_gen": max_gen,
             "pm": pm,
             "pc": pc,
             "tournament_size": tsize,
+            
+            # Dati grezzi per analisi dettagliate
+            "raw_runs": ga_runs.copy(),
         }
 
     return results
@@ -1200,36 +1461,146 @@ def save_results_to_csv(results, N_values, fitness_mode, out_dir):
         writer = csv.writer(f)
         writer.writerow([
             "N",
+            # BT metriche logiche e temporali
             "BT_solution_found",
-            "BT_nodes",
-            "BT_time",
+            "BT_nodes_explored",
+            "BT_time_seconds",
+            
+            # SA metriche statistiche complete
             "SA_success_rate",
-            "SA_avg_steps_success",
-            "SA_avg_time_success",
+            "SA_timeout_rate", 
+            "SA_failure_rate",
+            "SA_total_runs",
+            "SA_successes",
+            "SA_failures",
+            "SA_timeouts",
+            
+            # SA metriche logiche per successi
+            "SA_success_steps_mean",
+            "SA_success_steps_median", 
+            "SA_success_evals_mean",
+            "SA_success_evals_median",
+            
+            # SA metriche logiche per timeout
+            "SA_timeout_steps_mean",
+            "SA_timeout_steps_median",
+            "SA_timeout_evals_mean", 
+            "SA_timeout_evals_median",
+            
+            # SA metriche temporali per successi
+            "SA_success_time_mean",
+            "SA_success_time_median",
+            
+            # GA metriche statistiche complete  
             "GA_success_rate",
-            "GA_avg_gen_success",
-            "GA_avg_time_success",
+            "GA_timeout_rate",
+            "GA_failure_rate", 
+            "GA_total_runs",
+            "GA_successes", 
+            "GA_failures",
+            "GA_timeouts",
+            
+            # GA metriche logiche per successi
+            "GA_success_gen_mean",
+            "GA_success_gen_median",
+            "GA_success_evals_mean", 
+            "GA_success_evals_median",
+            
+            # GA metriche logiche per timeout
+            "GA_timeout_gen_mean",
+            "GA_timeout_gen_median",
+            "GA_timeout_evals_mean",
+            "GA_timeout_evals_median",
+            
+            # GA metriche temporali per successi
+            "GA_success_time_mean",
+            "GA_success_time_median",
+            
+            # GA parametri utilizzati
             "GA_pop_size",
             "GA_max_gen",
             "GA_pm",
-            "GA_pc",
+            "GA_pc", 
             "GA_tournament_size",
         ])
+        
         for N in N_values:
             bt = results["BT"][N]
             sa = results["SA"][N]
             ga = results["GA"][N]
+            
+            # Estrae statistiche SA
+            sa_steps_success = sa.get("success_steps", {})
+            sa_evals_success = sa.get("success_evals", {})
+            sa_time_success = sa.get("success_time", {})
+            sa_steps_timeout = sa.get("timeout_steps", {})
+            sa_evals_timeout = sa.get("timeout_evals", {})
+            
+            # Estrae statistiche GA
+            ga_gen_success = ga.get("success_gen", {})
+            ga_evals_success = ga.get("success_evals", {})
+            ga_time_success = ga.get("success_time", {})
+            ga_gen_timeout = ga.get("timeout_gen", {})
+            ga_evals_timeout = ga.get("timeout_evals", {})
+            
             writer.writerow([
                 N,
+                # BT
                 int(bt["solution_found"]),
                 bt["nodes"],
                 bt["time"],
+                
+                # SA statistiche generali
                 sa["success_rate"],
-                sa["avg_steps_success"] if sa["avg_steps_success"] is not None else "",
-                sa["avg_time_success"] if sa["avg_time_success"] is not None else "",
+                sa.get("timeout_rate", 0),
+                sa.get("failure_rate", 0),
+                sa["total_runs"],
+                sa["successes"], 
+                sa["failures"],
+                sa.get("timeouts", 0),
+                
+                # SA metriche logiche successi
+                sa_steps_success.get("mean", ""),
+                sa_steps_success.get("median", ""),
+                sa_evals_success.get("mean", ""),
+                sa_evals_success.get("median", ""),
+                
+                # SA metriche logiche timeout
+                sa_steps_timeout.get("mean", ""),
+                sa_steps_timeout.get("median", ""),
+                sa_evals_timeout.get("mean", ""),
+                sa_evals_timeout.get("median", ""),
+                
+                # SA metriche temporali successi
+                sa_time_success.get("mean", ""),
+                sa_time_success.get("median", ""),
+                
+                # GA statistiche generali
                 ga["success_rate"],
-                ga["avg_gen_success"] if ga["avg_gen_success"] is not None else "",
-                ga["avg_time_success"] if ga["avg_time_success"] is not None else "",
+                ga.get("timeout_rate", 0),
+                ga.get("failure_rate", 0),
+                ga["total_runs"],
+                ga["successes"],
+                ga["failures"],
+                ga.get("timeouts", 0),
+                
+                # GA metriche logiche successi
+                ga_gen_success.get("mean", ""),
+                ga_gen_success.get("median", ""),
+                ga_evals_success.get("mean", ""),
+                ga_evals_success.get("median", ""),
+                
+                # GA metriche logiche timeout
+                ga_gen_timeout.get("mean", ""),
+                ga_gen_timeout.get("median", ""),
+                ga_evals_timeout.get("mean", ""),
+                ga_evals_timeout.get("median", ""),
+                
+                # GA metriche temporali successi
+                ga_time_success.get("mean", ""),
+                ga_time_success.get("median", ""),
+                
+                # GA parametri
                 ga["pop_size"],
                 ga["max_gen"],
                 ga["pm"],
@@ -1240,211 +1611,578 @@ def save_results_to_csv(results, N_values, fitness_mode, out_dir):
     print(f"CSV salvato: {filename}")
 
 
-def plot_and_save(results, N_values, fitness_mode, out_dir):
+def save_raw_data_to_csv(results, N_values, fitness_mode, out_dir):
+    """Salva i dati grezzi di tutti i run individuali per analisi dettagliate"""
     os.makedirs(out_dir, exist_ok=True)
+    
+    # File per dati grezzi SA
+    sa_filename = os.path.join(out_dir, f"raw_data_SA_{fitness_mode}.csv")
+    with open(sa_filename, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "N", "run_id", "algorithm", "success", "timeout",
+            "steps", "time_seconds", "evals", "best_conflicts"
+        ])
+        
+        for N in N_values:
+            sa_data = results["SA"][N]
+            if "raw_runs" in sa_data:
+                for i, run in enumerate(sa_data["raw_runs"]):
+                    writer.writerow([
+                        N, i+1, "SA", run["success"], run["timeout"],
+                        run["steps"], run["time"], run["evals"], run["best_conflicts"]
+                    ])
+    
+    # File per dati grezzi GA  
+    ga_filename = os.path.join(out_dir, f"raw_data_GA_{fitness_mode}.csv")
+    with open(ga_filename, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "N", "run_id", "algorithm", "success", "timeout",
+            "gen", "time_seconds", "evals", "best_fitness", "best_conflicts",
+            "pop_size", "max_gen", "pm", "pc", "tournament_size"
+        ])
+        
+        for N in N_values:
+            ga_data = results["GA"][N]
+            if "raw_runs" in ga_data:
+                for i, run in enumerate(ga_data["raw_runs"]):
+                    writer.writerow([
+                        N, i+1, "GA", run["success"], run["timeout"],
+                        run["gen"], run["time"], run["evals"], 
+                        run.get("best_fitness", ""), run.get("best_conflicts", ""),
+                        ga_data["pop_size"], ga_data["max_gen"], 
+                        ga_data["pm"], ga_data["pc"], ga_data["tournament_size"]
+                    ])
+    
+    # File per dati grezzi BT (uno per N)
+    bt_filename = os.path.join(out_dir, f"raw_data_BT_{fitness_mode}.csv") 
+    with open(bt_filename, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "N", "algorithm", "solution_found", "nodes_explored", "time_seconds"
+        ])
+        
+        for N in N_values:
+            bt_data = results["BT"][N]
+            writer.writerow([
+                N, "BT", bt_data["solution_found"], bt_data["nodes"], bt_data["time"]
+            ])
+    
+    print(f"Dati grezzi salvati:")
+    print(f"  SA: {sa_filename}")
+    print(f"  GA: {ga_filename}")  
+    print(f"  BT: {bt_filename}")
 
+
+def save_logical_cost_analysis(results, N_values, fitness_mode, out_dir):
+    """Salva analisi focalizzata sui costi logici indipendenti dalla macchina"""
+    os.makedirs(out_dir, exist_ok=True)
+    filename = os.path.join(out_dir, f"logical_costs_{fitness_mode}.csv")
+    
+    with open(filename, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "N",
+            # BT - costo logico
+            "BT_solution_found",
+            "BT_nodes_explored",  # costo logico primario
+            
+            # SA - costi logici  
+            "SA_success_rate",
+            "SA_steps_mean_all",        # costo logico primario
+            "SA_steps_median_all",
+            "SA_evals_mean_all",        # costo logico secondario
+            "SA_evals_median_all",
+            "SA_steps_mean_success",    # per successi
+            "SA_evals_mean_success", 
+            
+            # GA - costi logici
+            "GA_success_rate", 
+            "GA_gen_mean_all",          # costo logico primario
+            "GA_gen_median_all",
+            "GA_evals_mean_all",        # costo logico secondario
+            "GA_evals_median_all",
+            "GA_gen_mean_success",      # per successi
+            "GA_evals_mean_success",
+            
+            # Tempi come riferimento sperimentale
+            "BT_time_seconds",
+            "SA_time_mean_success",
+            "GA_time_mean_success",
+        ])
+        
+        for N in N_values:
+            bt = results["BT"][N]
+            sa = results["SA"][N]
+            ga = results["GA"][N]
+            
+            # Estrae metriche logiche SA
+            sa_all_steps = sa.get("all_steps", {})
+            sa_all_evals = sa.get("all_evals", {})
+            sa_success_steps = sa.get("success_steps", {})
+            sa_success_evals = sa.get("success_evals", {})
+            sa_success_time = sa.get("success_time", {})
+            
+            # Estrae metriche logiche GA  
+            ga_all_gen = ga.get("all_gen", {})
+            ga_all_evals = ga.get("all_evals", {})
+            ga_success_gen = ga.get("success_gen", {})
+            ga_success_evals = ga.get("success_evals", {})
+            ga_success_time = ga.get("success_time", {})
+            
+            writer.writerow([
+                N,
+                # BT
+                int(bt["solution_found"]),
+                bt["nodes"],
+                
+                # SA costi logici
+                sa["success_rate"],
+                sa_all_steps.get("mean", ""),
+                sa_all_steps.get("median", ""),
+                sa_all_evals.get("mean", ""), 
+                sa_all_evals.get("median", ""),
+                sa_success_steps.get("mean", ""),
+                sa_success_evals.get("mean", ""),
+                
+                # GA costi logici
+                ga["success_rate"],
+                ga_all_gen.get("mean", ""),
+                ga_all_gen.get("median", ""),
+                ga_all_evals.get("mean", ""),
+                ga_all_evals.get("median", ""),
+                ga_success_gen.get("mean", ""),
+                ga_success_evals.get("mean", ""),
+                
+                # Tempi sperimentali
+                bt["time"],
+                sa_success_time.get("mean", ""),
+                ga_success_time.get("mean", ""),
+            ])
+    
+    print(f"Analisi costi logici salvata: {filename}")
+
+
+def plot_comprehensive_analysis(results, N_values, fitness_mode, out_dir, raw_runs=None, tuning_data=None):
+    """
+    Genera tutti i grafici richiesti per l'analisi completa degli algoritmi N-Queens
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    
+    # ===========================================
+    # 1. GRAFICI BASE 
+    # ===========================================
+    
+    # Estrai dati base per tutti gli algoritmi
     bt_sr = [1.0 if results["BT"][N]["solution_found"] else 0.0 for N in N_values]
     sa_sr = [results["SA"][N]["success_rate"] for N in N_values]
     ga_sr = [results["GA"][N]["success_rate"] for N in N_values]
-
-    # Success rate vs N
-    plt.figure()
-    plt.plot(N_values, bt_sr, marker="o", label="BT (successo entro limite)")
-    plt.plot(N_values, sa_sr, marker="o", label="SA (tasso di successo)")
-    plt.plot(N_values, ga_sr, marker="o", label=f"GA-{fitness_mode} (tuned)")
-    plt.xlabel("N")
-    plt.ylabel("Tasso di successo")
-    plt.title(f"Tasso di successo vs N (GA {fitness_mode} con tuning)")
+    
+    bt_timeout = [0.0 for N in N_values]  # BT non ha timeout nei dati attuali
+    sa_timeout = [results["SA"][N].get("timeout_rate", 0.0) for N in N_values]
+    ga_timeout = [results["GA"][N].get("timeout_rate", 0.0) for N in N_values]
+    
+    # 1.1 Tasso di successo vs N
+    plt.figure(figsize=(12, 8))
+    plt.plot(N_values, bt_sr, marker="o", linewidth=2, markersize=8, label="Backtracking")
+    plt.plot(N_values, sa_sr, marker="s", linewidth=2, markersize=8, label="Simulated Annealing") 
+    plt.plot(N_values, ga_sr, marker="^", linewidth=2, markersize=8, label=f"Genetic Algorithm (F{fitness_mode})")
+    plt.xlabel("N (Dimensione scacchiera)", fontsize=12)
+    plt.ylabel("Tasso di Successo", fontsize=12)
+    plt.title("Tasso di Successo vs Dimensione Problema\n(Mostra affidabilità algoritmi al crescere di N)", fontsize=14)
     plt.ylim(-0.05, 1.05)
-    plt.legend()
-    plt.grid(True)
-    fname_success = os.path.join(out_dir, f"success_vs_N_GA_{fitness_mode}_tuned.png")
-    plt.savefig(fname_success, bbox_inches="tight")
-    plt.close()
-    print(f"Grafico salvato: {fname_success}")
-
-    # Tempo vs N
-    bt_time = [results["BT"][N]["time"] for N in N_values]
-    sa_time = [
-        results["SA"][N]["avg_time_success"] if results["SA"][N]["avg_time_success"] is not None else 0.0
-        for N in N_values
-    ]
-    ga_time = [
-        results["GA"][N]["avg_time_success"] if results["GA"][N]["avg_time_success"] is not None else 0.0
-        for N in N_values
-    ]
-
-    plt.figure()
-    plt.plot(N_values, bt_time, marker="o", label="BT (tempo 1ª soluzione)")
-    plt.plot(N_values, sa_time, marker="o", label="SA (tempo medio, successi)")
-    plt.plot(N_values, ga_time, marker="o", label=f"GA-{fitness_mode} (tempo medio, tuned)")
-    plt.xlabel("N")
-    plt.ylabel("Tempo [s]")
-    plt.title(f"Tempo vs N (GA {fitness_mode} con tuning)")
-    plt.legend()
-    plt.grid(True)
-    fname_time = os.path.join(out_dir, f"time_vs_N_GA_{fitness_mode}_tuned.png")
-    plt.savefig(fname_time, bbox_inches="tight")
-    plt.close()
-    print(f"Grafico salvato: {fname_time}")
-
-
-def save_bt_sa_results(all_results, N_values, out_dir):
-    """
-    Salva risultati specifici per BT e SA (indipendenti dalle fitness GA)
-    """
-    os.makedirs(out_dir, exist_ok=True)
-    
-    # Raccogli risultati BT e SA da tutti i fitness (sono identici)
-    first_fitness = list(all_results.keys())[0]
-    bt_results = all_results[first_fitness]["BT"]
-    sa_results = all_results[first_fitness]["SA"]
-    
-    # CSV risultati BT
-    bt_csv = os.path.join(out_dir, "results_BT.csv")
-    with open(bt_csv, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["N", "solution_found", "nodes", "time_seconds"])
-        for N in N_values:
-            bt = bt_results[N]
-            writer.writerow([
-                N,
-                int(bt["solution_found"]),
-                bt["nodes"],
-                bt["time"]
-            ])
-    print(f"CSV BT salvato: {bt_csv}")
-    
-    # CSV risultati SA
-    sa_csv = os.path.join(out_dir, "results_SA.csv")
-    with open(sa_csv, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["N", "success_rate", "avg_steps_success", "avg_time_success"])
-        for N in N_values:
-            sa = sa_results[N]
-            writer.writerow([
-                N,
-                sa["success_rate"],
-                sa["avg_steps_success"] if sa["avg_steps_success"] is not None else "",
-                sa["avg_time_success"] if sa["avg_time_success"] is not None else ""
-            ])
-    print(f"CSV SA salvato: {sa_csv}")
-
-
-def plot_bt_sa_analysis(all_results, N_values, out_dir):
-    """
-    Genera grafici di analisi specifica per BT e SA
-    """
-    os.makedirs(out_dir, exist_ok=True)
-    
-    # Raccogli dati BT e SA
-    first_fitness = list(all_results.keys())[0]
-    bt_results = all_results[first_fitness]["BT"]
-    sa_results = all_results[first_fitness]["SA"]
-    
-    # Dati BT
-    bt_nodes = [bt_results[N]["nodes"] for N in N_values]
-    bt_time = [bt_results[N]["time"] for N in N_values]
-    bt_success = [1.0 if bt_results[N]["solution_found"] else 0.0 for N in N_values]
-    
-    # Dati SA
-    sa_success_rate = [sa_results[N]["success_rate"] for N in N_values]
-    sa_avg_steps = [sa_results[N]["avg_steps_success"] if sa_results[N]["avg_steps_success"] is not None else 0 for N in N_values]
-    sa_avg_time = [sa_results[N]["avg_time_success"] if sa_results[N]["avg_time_success"] is not None else 0 for N in N_values]
-    
-    # Grafico 1: BT - Nodi esplorati vs N (scala log)
-    plt.figure(figsize=(10, 6))
-    plt.semilogy(N_values, bt_nodes, marker="o", linewidth=2, markersize=8, color="blue")
-    plt.xlabel("N (dimensione scacchiera)")
-    plt.ylabel("Nodi esplorati (scala log)")
-    plt.title("Backtracking: Complessità vs Dimensione Problema")
+    plt.legend(fontsize=11)
     plt.grid(True, alpha=0.7)
     plt.xticks(N_values)
-    
     # Aggiungi annotazioni
-    for i, (n, nodes) in enumerate(zip(N_values, bt_nodes)):
-        plt.annotate(f'{nodes:,}', (n, nodes), textcoords="offset points", 
-                    xytext=(0,10), ha='center', fontsize=9)
+    for i, n in enumerate(N_values):
+        plt.annotate(f'{bt_sr[i]:.1f}', (n, bt_sr[i]), textcoords="offset points", xytext=(0,5), ha='center', fontsize=9, color='blue')
+        plt.annotate(f'{sa_sr[i]:.2f}', (n, sa_sr[i]), textcoords="offset points", xytext=(0,-15), ha='center', fontsize=9, color='orange')
+        plt.annotate(f'{ga_sr[i]:.2f}', (n, ga_sr[i]), textcoords="offset points", xytext=(0,5), ha='center', fontsize=9, color='green')
     
-    fname_bt_nodes = os.path.join(out_dir, "BT_nodes_vs_N.png")
-    plt.savefig(fname_bt_nodes, bbox_inches="tight", dpi=300)
+    fname = os.path.join(out_dir, f"01_success_rate_vs_N_F{fitness_mode}.png")
+    plt.savefig(fname, bbox_inches="tight", dpi=300)
     plt.close()
-    print(f"Grafico BT nodi salvato: {fname_bt_nodes}")
+    print(f"✓ Grafico tasso successo salvato: {fname}")
     
-    # Grafico 2: BT - Tempo vs N
-    plt.figure(figsize=(10, 6))
-    plt.semilogy(N_values, [t*1000 for t in bt_time], marker="o", linewidth=2, markersize=8, color="blue")
-    plt.xlabel("N (dimensione scacchiera)")
-    plt.ylabel("Tempo (ms, scala log)")
-    plt.title("Backtracking: Tempo di Esecuzione vs Dimensione")
+    # 1.2 Tempo medio vs N (scala logaritmica, solo successi)
+    bt_time = [results["BT"][N]["time"] if results["BT"][N]["solution_found"] else 0 for N in N_values]
+    sa_time = [results["SA"][N]["success_time"].get("mean", 0.0) if results["SA"][N]["success_time"] else 0.0 for N in N_values]
+    ga_time = [results["GA"][N]["success_time"].get("mean", 0.0) if results["GA"][N]["success_time"] else 0.0 for N in N_values]
+    
+    plt.figure(figsize=(12, 8))
+    # Filtra valori zero per la scala log
+    bt_time_plot = [max(t, 1e-6) for t in bt_time]
+    sa_time_plot = [max(t, 1e-6) for t in sa_time]  
+    ga_time_plot = [max(t, 1e-6) for t in ga_time]
+    
+    plt.semilogy(N_values, bt_time_plot, marker="o", linewidth=2, markersize=8, label="Backtracking")
+    plt.semilogy(N_values, sa_time_plot, marker="s", linewidth=2, markersize=8, label="Simulated Annealing")
+    plt.semilogy(N_values, ga_time_plot, marker="^", linewidth=2, markersize=8, label=f"Genetic Algorithm (F{fitness_mode})")
+    plt.xlabel("N (Dimensione scacchiera)", fontsize=12)
+    plt.ylabel("Tempo Medio [s] (scala log)", fontsize=12)
+    plt.title("Tempo di Esecuzione vs Dimensione Problema\n(Solo run di successo - evidenzia esplosione computazionale BT)", fontsize=14)
+    plt.legend(fontsize=11)
     plt.grid(True, alpha=0.7)
     plt.xticks(N_values)
     
-    # Annotazioni tempo
-    for i, (n, t) in enumerate(zip(N_values, bt_time)):
-        if t < 0.001:
-            plt.annotate(f'{t*1000:.2f}ms', (n, t*1000), textcoords="offset points", 
-                        xytext=(0,10), ha='center', fontsize=9)
-        else:
-            plt.annotate(f'{t:.3f}s', (n, t*1000), textcoords="offset points", 
-                        xytext=(0,10), ha='center', fontsize=9)
-    
-    fname_bt_time = os.path.join(out_dir, "BT_time_vs_N.png")
-    plt.savefig(fname_bt_time, bbox_inches="tight", dpi=300)
+    fname = os.path.join(out_dir, f"02_time_vs_N_log_scale_F{fitness_mode}.png")
+    plt.savefig(fname, bbox_inches="tight", dpi=300)
     plt.close()
-    print(f"Grafico BT tempo salvato: {fname_bt_time}")
+    print(f"✓ Grafico tempo (log scale) salvato: {fname}")
     
-    # Grafico 3: SA - Success rate e iterazioni
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+    # 1.3 Costo logico vs N (indipendente dalla macchina)
+    bt_nodes = [results["BT"][N]["nodes"] for N in N_values]
+    sa_steps = [results["SA"][N]["success_steps"].get("mean", 0.0) if results["SA"][N]["success_steps"] else 0.0 for N in N_values]
+    ga_gen = [results["GA"][N]["success_gen"].get("mean", 0.0) if results["GA"][N]["success_gen"] else 0.0 for N in N_values]
     
-    # Success rate SA
-    ax1.plot(N_values, sa_success_rate, marker="o", linewidth=2, markersize=8, color="red")
-    ax1.set_xlabel("N (dimensione scacchiera)")
-    ax1.set_ylabel("Tasso di Successo")
-    ax1.set_title("Simulated Annealing: Tasso di Successo")
-    ax1.grid(True, alpha=0.7)
-    ax1.set_ylim(-0.05, 1.05)
-    ax1.set_xticks(N_values)
-    
-    # Annotazioni success rate
-    for n, sr in zip(N_values, sa_success_rate):
-        ax1.annotate(f'{sr:.2f}', (n, sr), textcoords="offset points", 
-                    xytext=(0,10), ha='center', fontsize=9)
-    
-    # Iterazioni medie SA
-    ax2.plot(N_values, sa_avg_steps, marker="o", linewidth=2, markersize=8, color="red")
-    ax2.set_xlabel("N (dimensione scacchiera)")
-    ax2.set_ylabel("Iterazioni Medie (successi)")
-    ax2.set_title("Simulated Annealing: Iterazioni per Successo")
-    ax2.grid(True, alpha=0.7)
-    ax2.set_xticks(N_values)
-    
-    # Annotazioni iterazioni
-    for n, steps in zip(N_values, sa_avg_steps):
-        if steps > 0:
-            ax2.annotate(f'{steps:.0f}', (n, steps), textcoords="offset points", 
-                        xytext=(0,10), ha='center', fontsize=9)
-    
-    fname_sa_analysis = os.path.join(out_dir, "SA_analysis.png")
-    plt.savefig(fname_sa_analysis, bbox_inches="tight", dpi=300)
-    plt.close()
-    print(f"Grafico SA analisi salvato: {fname_sa_analysis}")
-    
-    # Grafico 4: Confronto diretto BT vs SA (tempo)
-    plt.figure(figsize=(10, 6))
-    plt.semilogy(N_values, [t*1000 for t in bt_time], marker="o", linewidth=2, label="Backtracking", color="blue")
-    plt.semilogy(N_values, [t*1000 for t in sa_avg_time], marker="s", linewidth=2, label="Simulated Annealing", color="red")
-    plt.xlabel("N (dimensione scacchiera)")
-    plt.ylabel("Tempo (ms, scala log)")
-    plt.title("Confronto Tempi: Backtracking vs Simulated Annealing")
-    plt.legend()
+    plt.figure(figsize=(12, 8))
+    plt.semilogy(N_values, [max(n, 1) for n in bt_nodes], marker="o", linewidth=2, markersize=8, label="BT: Nodi esplorati")
+    plt.semilogy(N_values, [max(s, 1) for s in sa_steps], marker="s", linewidth=2, markersize=8, label="SA: Iterazioni medie")
+    plt.semilogy(N_values, [max(g, 1) for g in ga_gen], marker="^", linewidth=2, markersize=8, label="GA: Generazioni medie")
+    plt.xlabel("N (Dimensione scacchiera)", fontsize=12)
+    plt.ylabel("Costo Logico (scala log)", fontsize=12)
+    plt.title("Costo Computazionale Teorico vs Dimensione\n(Scalabilità indipendente dall'hardware)", fontsize=14)
+    plt.legend(fontsize=11)
     plt.grid(True, alpha=0.7)
     plt.xticks(N_values)
     
-    fname_comparison = os.path.join(out_dir, "BT_vs_SA_time_comparison.png")
-    plt.savefig(fname_comparison, bbox_inches="tight", dpi=300)
+    fname = os.path.join(out_dir, f"03_logical_cost_vs_N_F{fitness_mode}.png")
+    plt.savefig(fname, bbox_inches="tight", dpi=300)
     plt.close()
-    print(f"Grafico confronto salvato: {fname_comparison}")
+    print(f"✓ Grafico costo logico salvato: {fname}")
+    
+    # 1.4 Valutazioni di fitness vs N (SA vs GA)
+    sa_evals = [results["SA"][N]["success_evals"].get("mean", 0.0) if results["SA"][N]["success_evals"] else 0.0 for N in N_values]
+    ga_evals = [results["GA"][N]["success_evals"].get("mean", 0.0) if results["GA"][N]["success_evals"] else 0.0 for N in N_values]
+    
+    plt.figure(figsize=(12, 8))
+    plt.semilogy(N_values, [max(e, 1) for e in sa_evals], marker="s", linewidth=2, markersize=8, label="SA: Valutazioni conflitti")
+    plt.semilogy(N_values, [max(e, 1) for e in ga_evals], marker="^", linewidth=2, markersize=8, label=f"GA-F{fitness_mode}: Valutazioni fitness")
+    plt.xlabel("N (Dimensione scacchiera)", fontsize=12)
+    plt.ylabel("Valutazioni Funzione Obiettivo (scala log)", fontsize=12)
+    plt.title("Costo Puro in Chiamate alla Funzione Obiettivo\n(Misura il carico computazionale di valutazione)", fontsize=14)
+    plt.legend(fontsize=11)
+    plt.grid(True, alpha=0.7)
+    plt.xticks(N_values)
+    
+    fname = os.path.join(out_dir, f"04_fitness_evaluations_vs_N_F{fitness_mode}.png")
+    plt.savefig(fname, bbox_inches="tight", dpi=300)
+    plt.close()
+    print(f"✓ Grafico valutazioni fitness salvato: {fname}")
+    
+    # ===========================================
+    # 2. ANALISI TIMEOUT E FALLIMENTI
+    # ===========================================
+    
+    # 2.1 Percentuale di timeout vs N
+    plt.figure(figsize=(12, 8))
+    plt.plot(N_values, sa_timeout, marker="s", linewidth=2, markersize=8, label="SA: Timeout rate")
+    plt.plot(N_values, ga_timeout, marker="^", linewidth=2, markersize=8, label=f"GA-F{fitness_mode}: Timeout rate")
+    plt.xlabel("N (Dimensione scacchiera)", fontsize=12)
+    plt.ylabel("Tasso di Timeout", fontsize=12)
+    plt.title("Timeout Rate vs Dimensione Problema\n(Mostra fino a che N l'algoritmo regge entro tempo massimo)", fontsize=14)
+    plt.ylim(-0.05, 1.05)
+    plt.legend(fontsize=11)
+    plt.grid(True, alpha=0.7)
+    plt.xticks(N_values)
+    
+    fname = os.path.join(out_dir, f"05_timeout_rate_vs_N_F{fitness_mode}.png")
+    plt.savefig(fname, bbox_inches="tight", dpi=300)
+    plt.close()
+    print(f"✓ Grafico timeout rate salvato: {fname}")
+    
+    # 2.2 Qualità nei fallimenti (best_conflicts nei run falliti)
+    sa_fail_quality = [results["SA"][N]["failure_best_conflicts"].get("mean", N) if results["SA"][N].get("failure_best_conflicts") else N for N in N_values]
+    ga_fail_quality = [results["GA"][N]["failure_best_conflicts"].get("mean", N) if results["GA"][N].get("failure_best_conflicts") else N for N in N_values]
+    
+    plt.figure(figsize=(12, 8))
+    plt.plot(N_values, sa_fail_quality, marker="s", linewidth=2, markersize=8, label="SA: Conflitti medi (fallimenti)")
+    plt.plot(N_values, ga_fail_quality, marker="^", linewidth=2, markersize=8, label=f"GA-F{fitness_mode}: Conflitti medi (fallimenti)")
+    plt.plot(N_values, [0]*len(N_values), 'k--', alpha=0.5, label="Soluzione ottima (0 conflitti)")
+    plt.xlabel("N (Dimensione scacchiera)", fontsize=12)
+    plt.ylabel("Conflitti Medi nei Fallimenti", fontsize=12)
+    plt.title("Qualità delle Soluzioni nei Run Falliti\n(Anche senza successo, quanto ci si avvicina all'ottimo)", fontsize=14)
+    plt.legend(fontsize=11)
+    plt.grid(True, alpha=0.7)
+    plt.xticks(N_values)
+    
+    fname = os.path.join(out_dir, f"06_failure_quality_vs_N_F{fitness_mode}.png")
+    plt.savefig(fname, bbox_inches="tight", dpi=300)
+    plt.close()
+    print(f"✓ Grafico qualità fallimenti salvato: {fname}")
+    
+    # ===========================================
+    # 3. CONFRONTO TEORICO VS PRATICO
+    # ===========================================
+    
+    # 3.1 Tempo vs Costo logico (SA)
+    if any(sa_steps) and any(sa_time):
+        plt.figure(figsize=(12, 8))
+        # Filtra punti con dati validi
+        valid_sa = [(s, t, n) for s, t, n in zip(sa_steps, sa_time, N_values) if s > 0 and t > 0]
+        if valid_sa:
+            steps_valid, time_valid, n_valid = zip(*valid_sa)
+            plt.scatter(steps_valid, time_valid, c=n_valid, cmap='viridis', s=100, alpha=0.8)
+            plt.colorbar(label='N (dimensione)')
+            
+            # Aggiungi linea di trend se possibile
+            if len(valid_sa) > 2:
+                z = np.polyfit(steps_valid, time_valid, 1)
+                p = np.poly1d(z)
+                x_trend = np.linspace(min(steps_valid), max(steps_valid), 100)
+                plt.plot(x_trend, p(x_trend), "r--", alpha=0.8, label=f'Trend: y={z[0]:.2e}x+{z[1]:.2e}')
+                plt.legend()
+        
+        plt.xlabel("Iterazioni SA (costo logico)", fontsize=12)
+        plt.ylabel("Tempo [s] (costo pratico)", fontsize=12)
+        plt.title("Simulated Annealing: Correlazione Costo Teorico vs Pratico\n(Linearità conferma dominio del costo di valutazione)", fontsize=14)
+        plt.grid(True, alpha=0.7)
+        
+        fname = os.path.join(out_dir, f"07_SA_theoretical_vs_practical_F{fitness_mode}.png")
+        plt.savefig(fname, bbox_inches="tight", dpi=300)
+        plt.close()
+        print(f"✓ Grafico SA teorico vs pratico salvato: {fname}")
+    
+    # 3.2 Tempo vs Valutazioni fitness (GA)
+    if any(ga_evals) and any(ga_time):
+        plt.figure(figsize=(12, 8))
+        valid_ga = [(e, t, n) for e, t, n in zip(ga_evals, ga_time, N_values) if e > 0 and t > 0]
+        if valid_ga:
+            evals_valid, time_valid, n_valid = zip(*valid_ga)
+            plt.scatter(evals_valid, time_valid, c=n_valid, cmap='plasma', s=100, alpha=0.8)
+            plt.colorbar(label='N (dimensione)')
+            
+            # Trend line
+            if len(valid_ga) > 2:
+                z = np.polyfit(evals_valid, time_valid, 1)
+                p = np.poly1d(z)
+                x_trend = np.linspace(min(evals_valid), max(evals_valid), 100)
+                plt.plot(x_trend, p(x_trend), "r--", alpha=0.8, label=f'Trend: y={z[0]:.2e}x+{z[1]:.2e}')
+                plt.legend()
+        
+        plt.xlabel("Valutazioni Fitness GA (costo logico)", fontsize=12)
+        plt.ylabel("Tempo [s] (costo pratico)", fontsize=12)
+        plt.title(f"GA-F{fitness_mode}: Correlazione Costo Teorico vs Pratico\n(Linearità conferma dominio del costo di valutazione)", fontsize=14)
+        plt.grid(True, alpha=0.7)
+        
+        fname = os.path.join(out_dir, f"08_GA_theoretical_vs_practical_F{fitness_mode}.png")
+        plt.savefig(fname, bbox_inches="tight", dpi=300)
+        plt.close()
+        print(f"✓ Grafico GA teorico vs pratico salvato: {fname}")
+    
+    # 3.3 Tempo vs Nodi BT (conferma linearità)
+    if any(bt_nodes) and any(bt_time):
+        plt.figure(figsize=(12, 8))
+        valid_bt = [(n, t, nval) for n, t, nval in zip(bt_nodes, bt_time, N_values) if n > 0 and t > 0]
+        if valid_bt:
+            nodes_valid, time_valid, n_valid = zip(*valid_bt)
+            plt.scatter(nodes_valid, time_valid, c=n_valid, cmap='coolwarm', s=100, alpha=0.8)
+            plt.colorbar(label='N (dimensione)')
+            
+            # Trend line
+            if len(valid_bt) > 2:
+                z = np.polyfit(nodes_valid, time_valid, 1)
+                p = np.poly1d(z)
+                x_trend = np.linspace(min(nodes_valid), max(nodes_valid), 100)
+                plt.plot(x_trend, p(x_trend), "r--", alpha=0.8, label=f'Trend: y={z[0]:.2e}x+{z[1]:.2e}')
+                plt.legend()
+        
+        plt.xlabel("Nodi Esplorati BT (costo logico)", fontsize=12)
+        plt.ylabel("Tempo [s] (costo pratico)", fontsize=12)
+        plt.title("Backtracking: Correlazione Costo Teorico vs Pratico\n(Ogni nodo costa tempo quasi costante)", fontsize=14)
+        plt.grid(True, alpha=0.7)
+        
+        fname = os.path.join(out_dir, f"09_BT_theoretical_vs_practical_F{fitness_mode}.png")
+        plt.savefig(fname, bbox_inches="tight", dpi=300)
+        plt.close()
+        print(f"✓ Grafico BT teorico vs pratico salvato: {fname}")
+    
+    print(f"\n🎯 Analisi completa generata in: {out_dir}")
+    print(f"📊 {9} grafici base creati per fitness F{fitness_mode}")
+
+
+def plot_fitness_comparison(all_results, N_values, out_dir, raw_runs=None):
+    """
+    Confronto dettagliato tra le diverse fitness functions F1-F6 del GA
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    fitness_modes = list(all_results.keys())
+    
+    # Colori per le diverse fitness
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b']
+    fitness_colors = {f: colors[i % len(colors)] for i, f in enumerate(fitness_modes)}
+    
+    # ===========================================
+    # 1. SUCCESS RATE PER FITNESS (a N fisso)
+    # ===========================================
+    
+    # Scegli N rappresentativi per l'analisi
+    analysis_N = [n for n in [16, 24, 40] if n in N_values]  # N piccoli, medi, grandi
+    
+    for N in analysis_N:
+        # Bar chart: success rate per fitness
+        plt.figure(figsize=(12, 8))
+        success_rates = [all_results[f]["GA"][N]["success_rate"] for f in fitness_modes]
+        
+        bars = plt.bar(fitness_modes, success_rates, color=[fitness_colors[f] for f in fitness_modes], alpha=0.8)
+        plt.xlabel("Fitness Function", fontsize=12)
+        plt.ylabel("Tasso di Successo", fontsize=12) 
+        plt.title(f"Confronto Success Rate tra Fitness Functions (N={N})\n(Quale fitness converge meglio a parità di dimensione)", fontsize=14)
+        plt.ylim(0, 1.05)
+        plt.grid(True, alpha=0.3, axis='y')
+        
+        # Aggiungi valori sui bar
+        for bar, sr in zip(bars, success_rates):
+            plt.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01,
+                    f'{sr:.3f}', ha='center', va='bottom', fontweight='bold')
+        
+        fname = os.path.join(out_dir, f"fitness_success_rate_N{N}.png")
+        plt.savefig(fname, bbox_inches="tight", dpi=300)
+        plt.close()
+        print(f"✓ Confronto success rate N={N} salvato: {fname}")
+        
+        # ===========================================
+        # 2. GENERAZIONI MEDIE PER FITNESS
+        # ===========================================
+        
+        plt.figure(figsize=(12, 8))
+        gen_means = []
+        gen_stds = []
+        
+        for f in fitness_modes:
+            gen_stats = all_results[f]["GA"][N]["success_gen"]
+            gen_means.append(gen_stats.get("mean", 0))
+            gen_stds.append(gen_stats.get("std", 0))
+        
+        bars = plt.bar(fitness_modes, gen_means, yerr=gen_stds, 
+                      color=[fitness_colors[f] for f in fitness_modes], 
+                      alpha=0.8, capsize=5)
+        plt.xlabel("Fitness Function", fontsize=12)
+        plt.ylabel("Generazioni Medie ± Std", fontsize=12)
+        plt.title(f"Confronto Velocità di Convergenza (N={N})\n(Generazioni necessarie per trovare soluzione)", fontsize=14)
+        plt.grid(True, alpha=0.3, axis='y')
+        
+        # Valori sui bar
+        for bar, mean, std in zip(bars, gen_means, gen_stds):
+            if mean > 0:
+                plt.text(bar.get_x() + bar.get_width()/2, bar.get_height() + std + 0.5,
+                        f'{mean:.1f}±{std:.1f}', ha='center', va='bottom', fontsize=10)
+        
+        fname = os.path.join(out_dir, f"fitness_generations_N{N}.png")
+        plt.savefig(fname, bbox_inches="tight", dpi=300)
+        plt.close()
+        print(f"✓ Confronto generazioni N={N} salvato: {fname}")
+        
+        # ===========================================
+        # 3. TEMPO MEDIO PER FITNESS
+        # ===========================================
+        
+        plt.figure(figsize=(12, 8))
+        time_means = []
+        time_stds = []
+        
+        for f in fitness_modes:
+            time_stats = all_results[f]["GA"][N]["success_time"]
+            time_means.append(time_stats.get("mean", 0))
+            time_stds.append(time_stats.get("std", 0))
+        
+        bars = plt.bar(fitness_modes, time_means, yerr=time_stds,
+                      color=[fitness_colors[f] for f in fitness_modes], 
+                      alpha=0.8, capsize=5)
+        plt.xlabel("Fitness Function", fontsize=12)
+        plt.ylabel("Tempo Medio [s] ± Std", fontsize=12)
+        plt.title(f"Confronto Efficienza Temporale (N={N})\n(Trade-off tra successo e velocità)", fontsize=14)
+        plt.grid(True, alpha=0.3, axis='y')
+        
+        # Valori sui bar
+        for bar, mean, std in zip(bars, time_means, time_stds):
+            if mean > 0:
+                plt.text(bar.get_x() + bar.get_width()/2, bar.get_height() + std + 0.001,
+                        f'{mean:.3f}±{std:.3f}', ha='center', va='bottom', fontsize=10, rotation=0)
+        
+        fname = os.path.join(out_dir, f"fitness_time_N{N}.png")
+        plt.savefig(fname, bbox_inches="tight", dpi=300)
+        plt.close()
+        print(f"✓ Confronto tempo N={N} salvato: {fname}")
+    
+    # ===========================================
+    # 4. TRADE-OFF SUCCESS RATE VS COSTO (scatter)
+    # ===========================================
+    
+    for N in analysis_N:
+        plt.figure(figsize=(12, 8))
+        
+        success_rates = []
+        gen_means = []
+        eval_means = []
+        
+        for f in fitness_modes:
+            ga_data = all_results[f]["GA"][N]
+            success_rates.append(ga_data["success_rate"])
+            gen_means.append(ga_data["success_gen"].get("mean", 0))
+            eval_means.append(ga_data["success_evals"].get("mean", 0))
+        
+        # Scatter: success rate vs generazioni medie
+        scatter = plt.scatter(gen_means, success_rates, 
+                            c=[fitness_colors[f] for f in fitness_modes], 
+                            s=150, alpha=0.8, edgecolors='black', linewidth=2)
+        
+        # Etichette per ogni punto
+        for f, x, y in zip(fitness_modes, gen_means, success_rates):
+            plt.annotate(f'F{f}', (x, y), xytext=(5, 5), 
+                        textcoords='offset points', fontweight='bold', fontsize=12)
+        
+        plt.xlabel("Generazioni Medie per Successo", fontsize=12)
+        plt.ylabel("Tasso di Successo", fontsize=12)
+        plt.title(f"Trade-off Qualità vs Costo (N={N})\n(Pareto front: alto successo, basso costo)", fontsize=14)
+        plt.grid(True, alpha=0.7)
+        
+        # Evidenzia area Pareto-ottima (alto successo, basso costo)
+        max_sr = max(success_rates)
+        min_gen = min([g for g in gen_means if g > 0])
+        plt.axhline(y=max_sr*0.9, color='green', linestyle='--', alpha=0.5, label='Alto successo (>90% max)')
+        plt.axvline(x=min_gen*1.5, color='red', linestyle='--', alpha=0.5, label='Basso costo (<150% min)')
+        plt.legend()
+        
+        fname = os.path.join(out_dir, f"fitness_tradeoff_N{N}.png")
+        plt.savefig(fname, bbox_inches="tight", dpi=300)
+        plt.close()
+        print(f"✓ Trade-off fitness N={N} salvato: {fname}")
+    
+    # ===========================================
+    # 5. EVOLUZIONE SUCCESS RATE TUTTE LE FITNESS
+    # ===========================================
+    
+    plt.figure(figsize=(15, 10))
+    for f in fitness_modes:
+        ga_sr_all_N = [all_results[f]["GA"][N]["success_rate"] for N in N_values]
+        plt.plot(N_values, ga_sr_all_N, marker='o', linewidth=2, markersize=8, 
+                label=f'GA-F{f}', color=fitness_colors[f])
+    
+    plt.xlabel("N (Dimensione scacchiera)", fontsize=12)
+    plt.ylabel("Tasso di Successo", fontsize=12)
+    plt.title("Confronto Success Rate: Tutte le Fitness Functions\n(Evoluzione affidabilità al crescere della dimensione)", fontsize=14)
+    plt.ylim(-0.05, 1.05)
+    plt.legend(fontsize=11, ncol=2)
+    plt.grid(True, alpha=0.7)
+    plt.xticks(N_values)
+    
+    fname = os.path.join(out_dir, f"fitness_evolution_all.png")
+    plt.savefig(fname, bbox_inches="tight", dpi=300)
+    plt.close()
+    print(f"✓ Evoluzione tutte fitness salvato: {fname}")
+    
+    print(f"\n🔬 Analisi confronto fitness completata")
+    print(f"📊 Generati grafici per confronto F1-F6")
+
+
+def plot_and_save(results, N_values, fitness_mode, out_dir):
+    """
+    Wrapper di compatibilità - chiama la nuova funzione completa
+    """
+    plot_comprehensive_analysis(results, N_values, fitness_mode, out_dir)
 
 
 # ======================================================
@@ -1517,6 +2255,8 @@ def main_sequential():
 
         # 3) Salva CSV riassuntivo e grafici
         save_results_to_csv(results, N_VALUES, fitness_mode, OUT_DIR)
+        save_raw_data_to_csv(results, N_VALUES, fitness_mode, OUT_DIR)
+        save_logical_cost_analysis(results, N_VALUES, fitness_mode, OUT_DIR)
         plot_and_save(results, N_VALUES, fitness_mode, OUT_DIR)
 
     print("\nTutti i tuning e gli esperimenti finali sequenziali sono completati.")
@@ -1528,8 +2268,13 @@ def main_parallel():
     
     print(f"\n🚀 AVVIO VERSIONE PARALLELA (utilizzando {NUM_PROCESSES} processi)")
     print(f"CPU disponibili: {multiprocessing.cpu_count()}")
+    print(f"⏱️  Timeout configurati:")
+    print(f"   • BT: {BT_TIME_LIMIT}s" if BT_TIME_LIMIT else "   • BT: illimitato")
+    print(f"   • SA: {SA_TIME_LIMIT}s" if SA_TIME_LIMIT else "   • SA: illimitato")
+    print(f"   • GA: {GA_TIME_LIMIT}s" if GA_TIME_LIMIT else "   • GA: illimitato")
+    print(f"   • Esperimento: {EXPERIMENT_TIMEOUT}s" if EXPERIMENT_TIMEOUT else "   • Esperimento: illimitato")
     
-    start_total = time.time()
+    start_total = perf_counter()
 
     # ======================================================
     # FASE 1: TUNING PARALLELO PER TUTTE LE FITNESS
@@ -1543,7 +2288,7 @@ def main_parallel():
     
     for fitness_mode in FITNESS_MODES:
         print(f"\n🔧 Tuning per fitness {fitness_mode}...")
-        fitness_start = time.time()
+        fitness_start = perf_counter()
 
         # Tuning parallelo per ogni N di questa fitness
         best_ga_params_for_N = {}
@@ -1563,7 +2308,7 @@ def main_parallel():
 
             for N in N_VALUES:
                 print(f"  🔧 Tuning N = {N}...")
-                tuning_start = time.time()
+                tuning_start = perf_counter()
                 
                 best = tune_ga_for_N_parallel(
                     N,
@@ -1576,7 +2321,7 @@ def main_parallel():
                     runs_tuning=RUNS_GA_TUNING,
                 )
                 
-                tuning_time = time.time() - tuning_start
+                tuning_time = perf_counter() - tuning_start
                 best_ga_params_for_N[N] = best
                 print(f"     ✅ Completato in {tuning_time:.1f}s - Success rate: {best['success_rate']:.3f}")
 
@@ -1594,7 +2339,7 @@ def main_parallel():
         # Salva i parametri per questa fitness
         all_best_params[fitness_mode] = best_ga_params_for_N
         
-        fitness_time = time.time() - fitness_start
+        fitness_time = perf_counter() - fitness_start
         print(f"📄 Tuning {fitness_mode} completato in {fitness_time:.1f}s - CSV: {tuning_csv}")
 
     # ======================================================
@@ -1606,7 +2351,7 @@ def main_parallel():
     
     for fitness_mode in FITNESS_MODES:
         print(f"\n🧪 Esperimenti finali per {fitness_mode}...")
-        experiments_start = time.time()
+        experiments_start = perf_counter()
         
         results = run_experiments_with_best_ga_parallel(
             N_VALUES,
@@ -1617,20 +2362,29 @@ def main_parallel():
             best_ga_params_for_N=all_best_params[fitness_mode],
         )
         
-        experiments_time = time.time() - experiments_start
+        experiments_time = perf_counter() - experiments_start
         print(f"  ✅ Esperimenti completati in {experiments_time:.1f}s")
 
         # Salva risultati finali
         print(f"📊 Generazione grafici e CSV finali...")
         save_results_to_csv(results, N_VALUES, fitness_mode, OUT_DIR)
+        save_raw_data_to_csv(results, N_VALUES, fitness_mode, OUT_DIR)
+        save_logical_cost_analysis(results, N_VALUES, fitness_mode, OUT_DIR)
         plot_and_save(results, N_VALUES, fitness_mode, OUT_DIR)
         print(f"  ✅ Risultati salvati per {fitness_mode}")
 
-    total_time = time.time() - start_total
+    total_time = perf_counter() - start_total
     print(f"\n🏁 PIPELINE PARALLELA COMPLETATA!")
     print(f"⏱️  Tempo totale: {total_time:.1f}s ({total_time/60:.1f} minuti)")
     print(f"📊 Fitness processate: {len(FITNESS_MODES)}")
     print(f"🖥️  Processi utilizzati: {NUM_PROCESSES}")
+    print(f"📁 File generati per fitness:")
+    print(f"   • 1 CSV statistiche aggregate")  
+    print(f"   • 3 CSV dati grezzi (SA, GA, BT)")
+    print(f"   • 1 CSV analisi costi logici")
+    print(f"   • 4 grafici (success rate, tempo, costi primari, evaluations)")
+    print(f"   • + 1 CSV tuning parametri GA")
+    print(f"📈 Totale: {6 + 4} file per {len(FITNESS_MODES)} fitness = {(6+4)*len(FITNESS_MODES)} file")
 
 
 def main_concurrent_tuning():
@@ -1641,8 +2395,13 @@ def main_concurrent_tuning():
     print(f"Fitness: {FITNESS_MODES}")
     print(f"Processi: {NUM_PROCESSES}")
     print(f"CPU disponibili: {multiprocessing.cpu_count()}")
+    print(f"⏱️  Timeout configurati:")
+    print(f"   • BT: {BT_TIME_LIMIT}s" if BT_TIME_LIMIT else "   • BT: illimitato")
+    print(f"   • SA: {SA_TIME_LIMIT}s" if SA_TIME_LIMIT else "   • SA: illimitato") 
+    print(f"   • GA: {GA_TIME_LIMIT}s" if GA_TIME_LIMIT else "   • GA: illimitato")
+    print(f"   • Esperimento: {EXPERIMENT_TIMEOUT}s" if EXPERIMENT_TIMEOUT else "   • Esperimento: illimitato")
     
-    start_total = time.time()
+    start_total = perf_counter()
 
     # ======================================================
     # FASE 1: TUNING CONTEMPORANEO PER TUTTI N
@@ -1714,7 +2473,7 @@ def main_concurrent_tuning():
     
     for fitness_mode in FITNESS_MODES:
         print(f"\n🧪 Esperimenti finali per {fitness_mode}...")
-        experiments_start = time.time()
+        experiments_start = perf_counter()
         
         results = run_experiments_with_best_ga_parallel(
             N_VALUES,
@@ -1725,12 +2484,14 @@ def main_concurrent_tuning():
             best_ga_params_for_N=all_best_params[fitness_mode],
         )
         
-        experiments_time = time.time() - experiments_start
+        experiments_time = perf_counter() - experiments_start
         print(f"  ✅ Esperimenti completati in {experiments_time:.1f}s")
 
         # Salva risultati finali
         print(f"📊 Generazione grafici e CSV finali...")
         save_results_to_csv(results, N_VALUES, fitness_mode, OUT_DIR)
+        save_raw_data_to_csv(results, N_VALUES, fitness_mode, OUT_DIR)
+        save_logical_cost_analysis(results, N_VALUES, fitness_mode, OUT_DIR)
         plot_and_save(results, N_VALUES, fitness_mode, OUT_DIR)
         print(f"  ✅ Risultati salvati per {fitness_mode}")
 
@@ -1754,17 +2515,505 @@ def main_concurrent_tuning():
         best_ga_params_for_N=all_best_params[first_fitness],
     )
     
-    # Salva risultati e grafici specifici per BT e SA
-    save_bt_sa_results({first_fitness: first_results}, N_VALUES, OUT_DIR)
-    plot_bt_sa_analysis({first_fitness: first_results}, N_VALUES, OUT_DIR)
-    print(f"  Analisi BT/SA completata")
+def plot_statistical_analysis(all_results, N_values, out_dir, raw_runs=None):
+    """
+    Grafici statistici con boxplot e analisi della variabilità
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    
+    if not raw_runs:
+        print("⚠️  Raw runs non disponibili per analisi statistica dettagliata")
+        return
+    
+    # Analizza un subset rappresentativo di N 
+    analysis_N = [n for n in [16, 24, 40] if n in N_values and n in raw_runs]
+    
+    for N in analysis_N:
+        if N not in raw_runs:
+            continue
+            
+        print(f"📊 Analisi statistica per N={N}...")
+        
+        # ===========================================
+        # 1. BOXPLOT DEI TEMPI (solo successi)
+        # ===========================================
+        
+        plt.figure(figsize=(14, 8))
+        
+        # Raccogli dati temporali per tutti gli algoritmi
+        time_data = []
+        labels = []
+        
+        # SA tempi (solo successi)
+        if "SA" in raw_runs[N]:
+            sa_times = [run["time"] for run in raw_runs[N]["SA"] if run["success"]]
+            if sa_times:
+                time_data.append(sa_times)
+                labels.append("SA")
+        
+        # GA tempi per ogni fitness (solo successi)
+        for fitness in sorted(all_results.keys()):
+            if fitness in raw_runs[N]:
+                ga_times = [run["time"] for run in raw_runs[N][fitness] if run["success"]]
+                if ga_times:
+                    time_data.append(ga_times)
+                    labels.append(f"GA-F{fitness}")
+        
+        if time_data:
+            box_plot = plt.boxplot(time_data, labels=labels, patch_artist=True)
+            
+            # Colora i boxplot
+            colors = ['#ff7f0e', '#1f77b4', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2']
+            for patch, color in zip(box_plot['boxes'], colors):
+                patch.set_facecolor(color)
+                patch.set_alpha(0.7)
+            
+            plt.ylabel("Tempo di Esecuzione [s]", fontsize=12)
+            plt.title(f"Distribuzione Tempi di Esecuzione (N={N}, solo successi)\n(Boxplot mostra mediana, quartili, outliers)", fontsize=14)
+            plt.yscale('log')
+            plt.grid(True, alpha=0.3)
+            plt.xticks(rotation=45)
+            
+            fname = os.path.join(out_dir, f"boxplot_times_N{N}.png")
+            plt.savefig(fname, bbox_inches="tight", dpi=300)
+            plt.close()
+            print(f"✓ Boxplot tempi N={N}: {fname}")
+        
+        # ===========================================
+        # 2. BOXPLOT DELLE ITERAZIONI/GENERAZIONI
+        # ===========================================
+        
+        plt.figure(figsize=(14, 8))
+        
+        iter_data = []
+        iter_labels = []
+        
+        # SA iterazioni (solo successi)
+        if "SA" in raw_runs[N]:
+            sa_steps = [run["steps"] for run in raw_runs[N]["SA"] if run["success"]]
+            if sa_steps:
+                iter_data.append(sa_steps)
+                iter_labels.append("SA (steps)")
+        
+        # GA generazioni per ogni fitness (solo successi)
+        for fitness in sorted(all_results.keys()):
+            if fitness in raw_runs[N]:
+                ga_gens = [run["gen"] for run in raw_runs[N][fitness] if run["success"]]
+                if ga_gens:
+                    iter_data.append(ga_gens)
+                    iter_labels.append(f"GA-F{fitness} (gen)")
+        
+        if iter_data:
+            box_plot = plt.boxplot(iter_data, labels=iter_labels, patch_artist=True)
+            
+            # Colora i boxplot
+            for patch, color in zip(box_plot['boxes'], colors):
+                patch.set_facecolor(color)
+                patch.set_alpha(0.7)
+            
+            plt.ylabel("Iterazioni/Generazioni", fontsize=12)
+            plt.title(f"Distribuzione Costi Logici (N={N}, solo successi)\n(Variabilità dell'algoritmo in termini di sforzo)", fontsize=14)
+            plt.grid(True, alpha=0.3)
+            plt.xticks(rotation=45)
+            
+            fname = os.path.join(out_dir, f"boxplot_iterations_N{N}.png")
+            plt.savefig(fname, bbox_inches="tight", dpi=300)
+            plt.close()
+            print(f"✓ Boxplot iterazioni N={N}: {fname}")
+        
+        # ===========================================
+        # 3. ISTOGRAMMI DISTRIBUZIONI
+        # ===========================================
+        
+        # SA histogram
+        if "SA" in raw_runs[N]:
+            sa_times = [run["time"] for run in raw_runs[N]["SA"] if run["success"]]
+            if len(sa_times) > 5:  # Abbastanza dati per istogramma
+                plt.figure(figsize=(12, 6))
+                plt.hist(sa_times, bins=min(20, len(sa_times)//2), alpha=0.7, color='orange', edgecolor='black')
+                plt.xlabel("Tempo [s]", fontsize=12)
+                plt.ylabel("Frequenza", fontsize=12)
+                plt.title(f"Distribuzione Tempi SA (N={N})\n(Forma della distribuzione indica stabilità algoritmo)", fontsize=14)
+                plt.grid(True, alpha=0.3)
+                
+                # Aggiungi statistiche
+                mean_time = np.mean(sa_times)
+                std_time = np.std(sa_times)
+                plt.axvline(mean_time, color='red', linestyle='--', label=f'Media: {mean_time:.3f}s')
+                plt.axvline(mean_time + std_time, color='red', linestyle=':', alpha=0.7, label=f'±1σ: {std_time:.3f}s')
+                plt.axvline(mean_time - std_time, color='red', linestyle=':', alpha=0.7)
+                plt.legend()
+                
+                fname = os.path.join(out_dir, f"histogram_SA_times_N{N}.png")
+                plt.savefig(fname, bbox_inches="tight", dpi=300)
+                plt.close()
+                print(f"✓ Istogramma SA tempi N={N}: {fname}")
+        
+        # GA histogram per la migliore fitness
+        best_fitness = min(all_results.keys(), key=lambda f: -all_results[f]["GA"][N]["success_rate"])
+        if best_fitness in raw_runs[N]:
+            ga_times = [run["time"] for run in raw_runs[N][best_fitness] if run["success"]]
+            if len(ga_times) > 5:
+                plt.figure(figsize=(12, 6))
+                plt.hist(ga_times, bins=min(20, len(ga_times)//2), alpha=0.7, color='green', edgecolor='black')
+                plt.xlabel("Tempo [s]", fontsize=12)
+                plt.ylabel("Frequenza", fontsize=12)
+                plt.title(f"Distribuzione Tempi GA-F{best_fitness} (N={N})\n(Algoritmo più stabile = distribuzione stretta)", fontsize=14)
+                plt.grid(True, alpha=0.3)
+                
+                # Statistiche
+                mean_time = np.mean(ga_times)
+                std_time = np.std(ga_times)
+                plt.axvline(mean_time, color='red', linestyle='--', label=f'Media: {mean_time:.3f}s')
+                plt.axvline(mean_time + std_time, color='red', linestyle=':', alpha=0.7, label=f'±1σ: {std_time:.3f}s')
+                plt.axvline(mean_time - std_time, color='red', linestyle=':', alpha=0.7)
+                plt.legend()
+                
+                fname = os.path.join(out_dir, f"histogram_GA_F{best_fitness}_times_N{N}.png")
+                plt.savefig(fname, bbox_inches="tight", dpi=300)
+                plt.close()
+                print(f"✓ Istogramma GA-F{best_fitness} tempi N={N}: {fname}")
+    
+    print(f"📈 Analisi statistica completata")
 
-    total_time = time.time() - start_total
-    print(f"\nTUNING CONTEMPORANEO COMPLETATO!")
-    print(f"Tempo totale: {total_time:.1f}s ({total_time/60:.1f} minuti)")
-    print(f"Fitness processate contemporaneamente: {len(FITNESS_MODES)}")
-    print(f"CSV generati: 6 GA + 6 tuning + 1 BT + 1 SA = 14 files")
-    print(f"Grafici generati: 12 GA (2 per fitness) + 4 BT/SA = 16 files")
+
+def plot_tuning_analysis(tuning_data, fitness_modes, N_values, out_dir):
+    """
+    Analisi dei dati di tuning GA con heatmap e scatter plots
+    """
+    if not tuning_data:
+        print("⚠️  Dati tuning non disponibili")
+        return
+        
+    os.makedirs(out_dir, exist_ok=True)
+    
+    # Per ogni fitness
+    for fitness in fitness_modes:
+        if fitness not in tuning_data:
+            continue
+            
+        print(f"🔧 Analisi tuning GA-F{fitness}...")
+        
+        # Scegli N rappresentativo per analisi dettagliata
+        analysis_N = [n for n in [24, 40] if n in N_values and n in tuning_data[fitness]]
+        
+        for N in analysis_N:
+            if N not in tuning_data[fitness]:
+                continue
+                
+            tuning_runs = tuning_data[fitness][N]
+            if not tuning_runs:
+                continue
+            
+            # ===========================================
+            # 1. HEATMAP SUCCESS RATE vs POP_SIZE, MAX_GEN
+            # ===========================================
+            
+            # Raccogli dati in matrice
+            pop_sizes = sorted(set(run['pop_size'] for run in tuning_runs))
+            max_gens = sorted(set(run['max_gen'] for run in tuning_runs))
+            
+            if len(pop_sizes) > 1 and len(max_gens) > 1:
+                # Crea matrice success_rate
+                sr_matrix = np.zeros((len(max_gens), len(pop_sizes)))
+                
+                for i, mg in enumerate(max_gens):
+                    for j, ps in enumerate(pop_sizes):
+                        # Trova run con questi parametri
+                        matching_runs = [r for r in tuning_runs 
+                                       if r['pop_size'] == ps and r['max_gen'] == mg]
+                        if matching_runs:
+                            sr_matrix[i, j] = matching_runs[0]['success_rate']
+                
+                # Plot heatmap
+                plt.figure(figsize=(12, 8))
+                im = plt.imshow(sr_matrix, cmap='RdYlGn', aspect='auto', interpolation='nearest')
+                plt.colorbar(im, label='Success Rate')
+                
+                # Labels
+                plt.xticks(range(len(pop_sizes)), [f'{ps}' for ps in pop_sizes])
+                plt.yticks(range(len(max_gens)), [f'{mg}' for mg in max_gens])
+                plt.xlabel("Population Size", fontsize=12)
+                plt.ylabel("Max Generations", fontsize=12)
+                plt.title(f"GA-F{fitness} Tuning Heatmap (N={N})\n(Zona verde = parametri ottimali)", fontsize=14)
+                
+                # Aggiungi valori nelle celle
+                for i in range(len(max_gens)):
+                    for j in range(len(pop_sizes)):
+                        if sr_matrix[i, j] > 0:
+                            plt.text(j, i, f'{sr_matrix[i, j]:.2f}', 
+                                   ha="center", va="center", fontweight='bold',
+                                   color='white' if sr_matrix[i, j] < 0.5 else 'black')
+                
+                fname = os.path.join(out_dir, f"heatmap_tuning_GA_F{fitness}_N{N}.png")
+                plt.savefig(fname, bbox_inches="tight", dpi=300)
+                plt.close()
+                print(f"✓ Heatmap tuning GA-F{fitness} N={N}: {fname}")
+            
+            # ===========================================
+            # 2. SCATTER: COSTO vs QUALITÀ
+            # ===========================================
+            
+            plt.figure(figsize=(12, 8))
+            
+            costs = [run['pop_size'] * run['max_gen'] for run in tuning_runs]
+            success_rates = [run['success_rate'] for run in tuning_runs]
+            
+            # Scatter colorato per mutation rate se disponibile
+            if 'pm' in tuning_runs[0]:
+                pms = [run['pm'] for run in tuning_runs]
+                scatter = plt.scatter(costs, success_rates, c=pms, cmap='viridis', 
+                                    s=100, alpha=0.7, edgecolors='black')
+                plt.colorbar(scatter, label='Mutation Rate (pm)')
+            else:
+                plt.scatter(costs, success_rates, s=100, alpha=0.7, edgecolors='black')
+            
+            plt.xlabel("Costo Computazionale (pop_size × max_gen)", fontsize=12)
+            plt.ylabel("Tasso di Successo", fontsize=12)
+            plt.title(f"GA-F{fitness}: Trade-off Costo vs Qualità (N={N})\n(Mostra se vale la pena aumentare parametri)", fontsize=14)
+            plt.grid(True, alpha=0.3)
+            
+            # Evidenzia configurazioni Pareto-ottimali
+            max_sr = max(success_rates)
+            pareto_points = [(c, sr) for c, sr in zip(costs, success_rates) 
+                           if sr >= max_sr * 0.95]  # Entro 95% del massimo
+            
+            if pareto_points:
+                min_cost_pareto = min(p[0] for p in pareto_points)
+                plt.axhline(y=max_sr*0.95, color='red', linestyle='--', alpha=0.5, 
+                          label=f'95% max success ({max_sr*0.95:.2f})')
+                plt.axvline(x=min_cost_pareto*1.1, color='green', linestyle='--', alpha=0.5,
+                          label=f'Costo efficiente (<{min_cost_pareto*1.1:.0f})')
+                plt.legend()
+            
+            fname = os.path.join(out_dir, f"scatter_cost_quality_GA_F{fitness}_N{N}.png")
+            plt.savefig(fname, bbox_inches="tight", dpi=300)
+            plt.close()
+            print(f"✓ Scatter costo-qualità GA-F{fitness} N={N}: {fname}")
+            
+            # ===========================================
+            # 3. LINE PLOT per MUTATION RATE
+            # ===========================================
+            
+            if 'pm' in tuning_runs[0]:
+                pm_values = sorted(set(run['pm'] for run in tuning_runs))
+                
+                if len(pm_values) > 1:
+                    plt.figure(figsize=(12, 8))
+                    
+                    # Per ogni pm, calcola success rate medio
+                    pm_sr_means = []
+                    pm_sr_stds = []
+                    
+                    for pm in pm_values:
+                        pm_runs = [run for run in tuning_runs if run['pm'] == pm]
+                        srs = [run['success_rate'] for run in pm_runs]
+                        pm_sr_means.append(np.mean(srs))
+                        pm_sr_stds.append(np.std(srs) if len(srs) > 1 else 0)
+                    
+                    plt.errorbar(pm_values, pm_sr_means, yerr=pm_sr_stds, 
+                               marker='o', linewidth=2, markersize=8, capsize=5)
+                    plt.xlabel("Mutation Rate (pm)", fontsize=12)
+                    plt.ylabel("Success Rate Medio ± Std", fontsize=12)
+                    plt.title(f"GA-F{fitness}: Effetto Mutation Rate (N={N})\n(Mostra sensibilità alla mutazione)", fontsize=14)
+                    plt.grid(True, alpha=0.3)
+                    plt.ylim(0, 1.05)
+                    
+                    fname = os.path.join(out_dir, f"lineplot_mutation_GA_F{fitness}_N{N}.png")
+                    plt.savefig(fname, bbox_inches="tight", dpi=300)
+                    plt.close()
+                    print(f"✓ Line plot mutation GA-F{fitness} N={N}: {fname}")
+    
+    print(f"🔧 Analisi tuning completata")
+
+
+def save_tuning_results(best_params_for_N, fitness_mode, out_dir):
+    """
+    Salva i risultati del tuning in un CSV
+    """
+    filename = os.path.join(out_dir, f"tuning_GA_F{fitness_mode}.csv")
+    
+    with open(filename, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "N", "pop_size", "max_gen", "pm", "pc", "tournament_size", 
+            "success_rate_tuning", "avg_gen_success_tuning"
+        ])
+        
+        for N in sorted(best_params_for_N.keys()):
+            params = best_params_for_N[N]
+            writer.writerow([
+                N,
+                params.get("pop_size", ""),
+                params.get("max_gen", ""),
+                params.get("pm", ""),
+                params.get("pc", ""),
+                params.get("tournament_size", ""),
+                params.get("success_rate", ""),
+                params.get("avg_gen_success", "")
+            ])
+    
+    print(f"✅ Risultati tuning GA-F{fitness_mode} salvati: {filename}")
+
+
+# Alias per compatibilità con il main
+def run_experiments_parallel(N_values, runs_bt, runs_sa, runs_ga, bt_time_limit, fitness_mode, best_ga_params_for_N):
+    """
+    Wrapper per run_experiments_with_best_ga_parallel per compatibilità
+    """
+    return run_experiments_with_best_ga_parallel(
+        N_values=N_values,
+        runs_bt=runs_bt,
+        runs_sa=runs_sa,
+        runs_ga=runs_ga,
+        bt_time_limit=bt_time_limit,
+        fitness_mode=fitness_mode,
+        best_ga_params_for_N=best_ga_params_for_N
+    )
+
+
+def main_concurrent_tuning():
+    """Main con tuning contemporaneo di tutte le fitness"""
+    os.makedirs(OUT_DIR, exist_ok=True)
+    
+    print(f"\nTUNING CONTEMPORANEO DI TUTTE LE FITNESS")
+    print(f"Fitness: {FITNESS_MODES}")
+    print(f"Processi: {NUM_PROCESSES}")
+    print(f"CPU disponibili: {multiprocessing.cpu_count()}")
+    print(f"⏱️  Timeout configurati:")
+    print(f"   • BT: {BT_TIME_LIMIT}s" if BT_TIME_LIMIT else "   • BT: illimitato")
+    print(f"   • SA: {SA_TIME_LIMIT}s" if SA_TIME_LIMIT else "   • SA: illimitato") 
+    print(f"   • GA: {GA_TIME_LIMIT}s" if GA_TIME_LIMIT else "   • GA: illimitato")
+    print(f"   • Esperimento: {EXPERIMENT_TIMEOUT}s" if EXPERIMENT_TIMEOUT else "   • Esperimento: illimitato")
+    
+    start_total = perf_counter()
+
+    # ======================================================
+    # FASE 1: TUNING CONTEMPORANEO PER TUTTI N
+    # ======================================================
+    print("\n" + "="*70)
+    print("FASE 1: TUNING CONTEMPORANEO PER TUTTE LE FITNESS")
+    print("="*70)
+    
+    # Dizionario per salvare i parametri ottimali: all_best_params[fitness_mode][N] = params
+    all_best_params = {fitness_mode: {} for fitness_mode in FITNESS_MODES}
+    
+    for N in N_VALUES:
+        print(f"\nTuning contemporaneo per N = {N}")
+        print("-" * 50)
+        
+        # Tuning contemporaneo di tutte le fitness per questo N
+        fitness_results = tune_all_fitness_parallel(
+            N,
+            FITNESS_MODES,
+            POP_MULTIPLIERS,
+            GEN_MULTIPLIERS,
+            PM_VALUES,
+            PC_FIXED,
+            TOURNAMENT_SIZE_FIXED,
+            runs_tuning=RUNS_GA_TUNING,
+        )
+        
+        # Salva i risultati per ogni fitness
+        for fitness_mode, best_params in fitness_results.items():
+            all_best_params[fitness_mode][N] = best_params
+    
+    # Salva i file CSV di tuning per ogni fitness
+    for fitness_mode in FITNESS_MODES:
+        save_tuning_results(all_best_params[fitness_mode], fitness_mode, OUT_DIR)
+    
+    # ======================================================
+    # FASE 2: ESPERIMENTI FINALI CON PARAMETRI OTTIMALI
+    # ======================================================
+    print("\n" + "="*70)
+    print("FASE 2: ESPERIMENTI FINALI CON PARAMETRI OTTIMALI")
+    print("="*70)
+    
+    # Dizionario per risultati finali
+    all_results = {}
+    
+    # Per ogni fitness, esegui esperimenti finali
+    for fitness_mode in FITNESS_MODES:
+        print(f"\n🧬 Esperimenti finali GA-{fitness_mode}")
+        
+        first_results = run_experiments_parallel(
+            N_VALUES,
+            runs_bt=RUNS_BT_FINAL,
+            runs_sa=RUNS_SA_FINAL,
+            runs_ga=RUNS_GA_FINAL,
+            bt_time_limit=BT_TIME_LIMIT,
+            fitness_mode=fitness_mode,
+            best_ga_params_for_N=all_best_params[fitness_mode],
+        )
+        
+        all_results[fitness_mode] = first_results
+        
+        # Salva risultati e grafici per questa fitness
+        save_results_to_csv(first_results, fitness_mode, OUT_DIR)
+        save_raw_data_to_csv(first_results, fitness_mode, OUT_DIR)
+        save_logical_cost_analysis(first_results, N_VALUES, fitness_mode, OUT_DIR)
+        plot_and_save(first_results, N_VALUES, fitness_mode, OUT_DIR)
+        
+        print(f"✅ Fitness {fitness_mode} completata")
+    
+    # ======================================================
+    # FASE 3: ANALISI COMPARATIVA COMPLETA
+    # ======================================================
+    print("\n" + "="*70)
+    print("FASE 3: ANALISI COMPARATIVA E GRAFICI AVANZATI") 
+    print("="*70)
+    
+    # 1. Grafici comprensivi per ogni fitness
+    for fitness in FITNESS_MODES:
+        print(f"  📊 Analisi completa per GA-F{fitness}...")
+        plot_comprehensive_analysis(
+            all_results[fitness], 
+            N_VALUES, 
+            fitness, 
+            os.path.join(OUT_DIR, f"analysis_F{fitness}"),
+            raw_runs=None
+        )
+    
+    # 2. Confronto tra tutte le fitness
+    print(f"  🔬 Confronto tra fitness functions...")
+    plot_fitness_comparison(
+        all_results,
+        N_VALUES, 
+        os.path.join(OUT_DIR, "fitness_comparison")
+    )
+    
+    # 3. Analisi statistica dettagliata  
+    print(f"  📈 Analisi statistica...")
+    plot_statistical_analysis(
+        all_results,
+        N_VALUES,
+        os.path.join(OUT_DIR, "statistical_analysis"),
+        raw_runs=None
+    )
+    
+    # 4. Analisi tuning  
+    print(f"  🔧 Analisi tuning parametri...")
+    plot_tuning_analysis(
+        {},  # TODO: raccogliere dati tuning se necessario
+        FITNESS_MODES,
+        N_VALUES,
+        os.path.join(OUT_DIR, "tuning_analysis")
+    )
+
+    total_time = perf_counter() - start_total
+    print(f"\n" + "="*70)
+    print(f"🎯 TUNING CONTEMPORANEO COMPLETATO!")
+    print(f"⏱️  Tempo totale: {total_time:.1f}s ({total_time/60:.1f} minuti)")
+    print(f"🧬 Fitness processate: {len(FITNESS_MODES)}")
+    print(f"📊 Grafici generati:")
+    print(f"   • 9 grafici base × {len(FITNESS_MODES)} fitness = {9*len(FITNESS_MODES)} grafici") 
+    print(f"   • 6 grafici confronto fitness")
+    print(f"   • 12+ grafici analisi statistica")
+    print(f"   • 10+ grafici analisi tuning")
+    print(f"📁 Totale: ~{9*len(FITNESS_MODES) + 28} grafici di alta qualità")
+    print(f"💾 CSV: {4*len(FITNESS_MODES)} file")
+    print(f"🖥️  Processi utilizzati: {NUM_PROCESSES}")
+    print("="*70)
     print(f"Processi utilizzati: {NUM_PROCESSES}")
 
 

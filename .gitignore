@@ -47,14 +47,6 @@ venv.bak/
 ehthumbs.db
 Thumbs.db
 
-# Results and data files
-results_*/
-*.csv
-*.png
-*.jpg
-*.jpeg
-*.gif
-*.svg
 
 # Logs
 *.log

@@ -1,0 +1,4 @@
+N,pop_size,max_gen,pm,pc,tournament_size,success_rate_tuning,avg_gen_success_tuning
+8,50,400,0.15,0.8,3,0.8,17.25
+16,256,480,0.05,0.8,3,0.6,72.33333333333333
+24,384,1200,0.05,0.8,3,0.6,405.6666666666667
