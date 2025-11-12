@@ -7,6 +7,9 @@ This project provides a comprehensive comparative analysis of three fundamental 
 Run only specific algorithms via the `--alg` (`-a`) filter. Accepted values: `BT`, `SA`, `GA` (repeatable or comma-separated). Examples:
 
 ```bash
+# List available algorithms, BT solvers, and GA fitness modes
+python algoanalisys.py --list
+
 # GA only (experiments only; tuning on-demand)
 python algoanalisys.py -a GA
 
@@ -32,6 +35,7 @@ Behavior notes:
 - If `GA` is excluded (e.g., `-a SA` or `-a BT`), tuning is skipped regardless.
 - When tuning runs, optimal GA parameters are saved back to `config.json` (via `ConfigManager`).
 - Without `--tune`, GA parameters are loaded from `config.json`. If parameters for the selected fitness/N are missing or empty, the CLI automatically performs tuning as a fallback and persists the results.
+- When `GA` is not selected, any `--fitness/-f` filter is ignored by design; logs and banners also avoid mentioning fitness.
 
 All runtime messages and plot labels are in English.
 
@@ -315,17 +319,40 @@ python algoanalisys.py --quick-test
 
 # Run only selected fitness functions (comma-separated or multiple flags)
 python algoanalisys.py --fitness F1,F3,F5
+
+# Inspect available algorithms, BT solvers, and GA fitness modes
+python algoanalisys.py --list
 ```
 
 CLI flags overview:
 
 - --mode {sequential|parallel|concurrent}
 - --fitness, -f: filter fitness functions
-- --config: configuration file path (default: config.json)
+- --list: print available algorithms, dynamically discovered BT solvers, and GA fitness modes with short descriptions
+- --config: configuration file path (default: `config.json` alongside `algoanalisys.py`)
 - --quick-test: run quick regression and exit
 - --validate: validate solutions and assert consistency (extra checks)
 
 Note: All runtime messages and plot labels are in English.
+
+### Listing
+
+The `--list` flag prints discoverable capabilities:
+
+```text
+Available algorithms: BT, SA, GA
+Backtracking solvers: first, lcv, mcv, mcv_hybrid
+GA fitness modes:
+    - F1 — Fitness: negative conflicts (higher is better).
+    - F2 — Fitness: number of non-conflicting queen pairs.
+    - F3 — Fitness: linear penalty on diagonal clusters (mild).
+    - F4 — Fitness: penalize worst-case queen conflicts.
+    - F5 — Fitness: quadratic penalty on diagonal clusters (strong).
+    - F6 — Fitness: exp(-lam * conflicts(board)).
+```
+
+- BT solvers are discovered dynamically by prefix `bt_nqueens_*` in `nqueens.backtracking`.
+- GA fitness descriptions are sourced from the one-line docstrings in `nqueens/fitness.py`.
 
 ### Python API
 
@@ -350,6 +377,12 @@ print(conflicts(board))          # 0 for a valid solution
 ```
 
 ### Configuration
+
+#### Config File Location
+
+- Default: the CLI loads `config.json` from the project root, i.e., the same folder as the main entry point `algoanalisys.py`.
+- Override: pass a different file with `--config /path/to/file.json`.
+- Listing: `--list` also reads fitness modes from this config when present; otherwise it falls back to built-in defaults.
 
 #### Problem Sizes
 
@@ -395,21 +428,38 @@ The orchestrator discovers backtracking solvers dynamically by the `bt_nqueens_*
 
 #### CSV Data Files
 
+File naming is contextual to the selected algorithms:
+
+- When GA is included (e.g., `-a GA` or `-a SA,GA`): files are suffixed per fitness (F1–F6), e.g. `results_GA_F1_tuned.csv`.
+- When GA is not included (e.g., `-a BT` or `-a SA`): files do not contain any fitness suffix.
+
+Examples:
+
 ```text
 results_nqueens_tuning/
-├── results_GA_F1_tuned.csv      # GA F1 aggregated results
+├── results_GA_F1_tuned.csv      # GA F1 aggregated results (when GA present)
 ├── results_GA_F2_tuned.csv      # GA F2 aggregated results
-├── ...                          # F3-F6 results
-├── tuning_GA_F1.csv             # GA F1 parameter tuning data
+├── ...                          # F3–F6 results
+├── tuning_GA_F1.csv             # GA F1 parameter tuning data (if --tune)
 ├── tuning_GA_F2.csv             # GA F2 parameter tuning data
-└── ...                          # F3-F6 tuning data
+└── ...                          # F3–F6 tuning data
+
+# BT/SA only runs (no GA):
+├── results_BT.csv               # Aggregated BT-only
+├── results_SA.csv               # Aggregated SA-only
+├── results_BT_SA.csv            # Aggregated BT+SA (no GA)
 ```
+
+Notes:
+
+- Raw CSVs are emitted only for algorithms that actually ran (e.g., no GA raw CSVs in BT/SA-only runs).
+- Filenames without fitness suffix indicate GA is not part of the run.
 
 ### CSV Schema
 
 The CSV exports use lowercase snake_case column names. Aggregated metrics use subsystem prefixes: `bt_` (Backtracking), `sa_` (Simulated Annealing), `ga_` (Genetic Algorithm). Time fields are in seconds.
 
-#### Aggregated Results (`results_GA_<FITNESS>_tuned.csv`)
+#### Aggregated Results
 
 ```text
 n,
@@ -431,9 +481,11 @@ ga_pop_size, ga_max_gen, ga_pm, ga_pc, ga_tournament_size
 
 Note: i tre campi `bt_*` senza suffisso rappresentano il solver ibrido `bt_nqueens_mcv_hybrid` per retro-compatibilità. Le colonne per-solver riportano i dettagli di ciascuna variante BT.
 
-#### Raw Data — Simulated Annealing (`raw_data_SA_<FITNESS>.csv`)
+#### Raw Data — Simulated Annealing
 
 ```text
+# With GA present: raw_data_SA_F<k>.csv
+# Without GA:      raw_data_SA.csv
 n, run_id, algorithm, success, timeout, steps, time_seconds, evals, best_conflicts
 ```
 
@@ -444,15 +496,20 @@ n, run_id, algorithm, success, timeout, gen, time_seconds, evals, best_fitness, 
 pop_size, max_gen, pm, pc, tournament_size
 ```
 
-#### Raw Data — Backtracking (`raw_data_BT_<FITNESS>.csv`)
+#### Raw Data — Backtracking
 
 ```text
+# With GA present: raw_data_BT_F<k>.csv
+# Without GA:      raw_data_BT.csv
+# Note: generated only if BT is selected/run
 n, algorithm, solution_found, nodes_explored, time_seconds
 ```
 
-#### Logical Cost Analysis (`logical_costs_<FITNESS>.csv`)
+#### Logical Cost Analysis
 
 ```text
+# With GA present: logical_costs_F<k>.csv
+# Without GA:      logical_costs.csv
 n,
 bt_solution_found, bt_nodes_explored,
 sa_success_rate, sa_steps_mean_all, sa_steps_median_all, sa_evals_mean_all, sa_evals_median_all,
@@ -468,12 +525,12 @@ Backward compatibility: if you were consuming previous CSVs with different heade
 
 ```text
 results_nqueens_tuning/
-├── analysis_F1/                 # 9 detailed charts for F1
-├── analysis_F2/                 # 9 detailed charts for F2  
-├── ...                          # F3-F6 analysis
-├── fitness_comparison/          # comparative charts
+├── analysis_F1/                 # Charts per fitness (when GA present)
+├── analysis_F2/
+├── ...                          # F3–F6 analysis
+├── fitness_comparison/          # GA fitness comparative charts (when GA present)
 ├── statistical_analysis/        # optional statistical charts
-└── tuning_GA_F*.csv             # tuning exports per fitness
+└── tuning_GA_F*.csv             # tuning exports per fitness (when --tune)
 ```
 
 ### Chart Categories

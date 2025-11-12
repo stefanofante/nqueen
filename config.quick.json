@@ -1,0 +1,45 @@
+{
+    "experiment_settings": {
+        "N_values": [
+            8
+        ],
+        "runs_sa_final": 2,
+        "runs_ga_final": 2,
+        "runs_bt_final": 1,
+        "runs_ga_tuning": 2,
+        "output_dir": "results_quick"
+    },
+    "timeout_settings": {
+        "bt_time_limit": 10.0,
+        "sa_time_limit": 5.0,
+        "ga_time_limit": 5.0,
+        "experiment_timeout": 15.0
+    },
+    "fitness_modes": [
+        "F1"
+    ],
+    "tuning_grid": {
+        "pop_multipliers": [
+            4
+        ],
+        "gen_multipliers": [
+            30
+        ],
+        "pm_values": [
+            0.1
+        ],
+        "pc_fixed": 0.8,
+        "tournament_size_fixed": 3
+    },
+    "optimal_parameters": {
+        "F1": {
+            "8": {
+                "pop_size": 32,
+                "max_gen": 240,
+                "pm": 0.1,
+                "pc": 0.8,
+                "tournament_size": 3
+            }
+        }
+    }
+}

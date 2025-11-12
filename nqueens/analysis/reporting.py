@@ -206,6 +206,9 @@ def save_bt_solvers_summary(results: ExperimentResults, N_values: List[int], fit
     """
     os.makedirs(out_dir, exist_ok=True)
     has_bt, has_sa, has_ga = _detect_presence(results, N_values)
+    if not has_bt:
+        # No BT runs present: skip creating summary entirely
+        return
     if not has_ga:
         filename = os.path.join(out_dir, "bt_solvers_summary.csv")
     else:
@@ -310,29 +313,32 @@ def save_raw_data_to_csv(results: ExperimentResults, N_values: List[int], fitnes
                             ga_data.get("tournament_size", 0),
                         ])
 
-    bt_filename = os.path.join(out_dir, (f"raw_data_BT_{fitness_mode}.csv" if has_ga else "raw_data_BT.csv"))
-    with open(bt_filename, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["n", "algorithm", "solution_found", "nodes_explored", "time_seconds"])
-        for N in N_values:
-            bt_data = results["BT"][N]
-            if isinstance(bt_data.get("solution_found") if isinstance(bt_data, dict) else None, bool):
-                rows = [("BT", bt_data)]
-            else:
-                rows = [
-                    ("BT_FIRST", bt_data.get("first", {"solution_found": False, "nodes": 0, "time": 0.0})),
-                    ("BT_MCV", bt_data.get("mcv", {"solution_found": False, "nodes": 0, "time": 0.0})),
-                    ("BT_LCV", bt_data.get("lcv", {"solution_found": False, "nodes": 0, "time": 0.0})),
-                    ("BT_MCV_HYBRID", bt_data.get("mcv_hybrid", {"solution_found": False, "nodes": 0, "time": 0.0})),
-                ]
-            for alg_label, row in rows:
-                writer.writerow([N, alg_label, row["solution_found"], row["nodes"], row["time"]])
+    bt_filename = None
+    if has_bt:
+        bt_filename = os.path.join(out_dir, (f"raw_data_BT_{fitness_mode}.csv" if has_ga else "raw_data_BT.csv"))
+        with open(bt_filename, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["n", "algorithm", "solution_found", "nodes_explored", "time_seconds"])
+            for N in N_values:
+                bt_data = results["BT"][N]
+                if isinstance(bt_data.get("solution_found") if isinstance(bt_data, dict) else None, bool):
+                    rows = [("BT", bt_data)]
+                else:
+                    rows = [
+                        ("BT_FIRST", bt_data.get("first", {"solution_found": False, "nodes": 0, "time": 0.0})),
+                        ("BT_MCV", bt_data.get("mcv", {"solution_found": False, "nodes": 0, "time": 0.0})),
+                        ("BT_LCV", bt_data.get("lcv", {"solution_found": False, "nodes": 0, "time": 0.0})),
+                        ("BT_MCV_HYBRID", bt_data.get("mcv_hybrid", {"solution_found": False, "nodes": 0, "time": 0.0})),
+                    ]
+                for alg_label, row in rows:
+                    writer.writerow([N, alg_label, row["solution_found"], row["nodes"], row["time"]])
     print("Raw data saved:")
     if sa_filename:
         print(f"  SA: {sa_filename}")
     if ga_filename:
         print(f"  GA: {ga_filename}")
-    print(f"  BT: {bt_filename}")
+    if bt_filename:
+        print(f"  BT: {bt_filename}")
 
 
 def save_logical_cost_analysis(results: ExperimentResults, N_values: List[int], fitness_mode: str, out_dir: str) -> None:

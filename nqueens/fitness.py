@@ -25,7 +25,7 @@ from .utils import conflicts
 
 
 def fitness_f1(board: Sequence[int]) -> float:
-    """Return the classic negative-conflicts fitness.
+    """Fitness: negative conflicts (higher is better).
 
     Parameters
     ----------
@@ -41,7 +41,7 @@ def fitness_f1(board: Sequence[int]) -> float:
 
 
 def fitness_f2(board: Sequence[int]) -> float:
-    """Return the number of non-conflicting pairs of queens.
+    """Fitness: number of non-conflicting queen pairs.
 
     The maximum value is ``N*(N-1)/2`` for N queens.
     """
@@ -51,7 +51,7 @@ def fitness_f2(board: Sequence[int]) -> float:
 
 
 def fitness_f3(board: Sequence[int]) -> float:
-    """Apply a linear penalty to diagonal clusters (mild discouragement).
+    """Fitness: linear penalty on diagonal clusters (mild).
 
     Counts the number of pairs on the same diagonals using a linear term
     for clusters of size > 1.
@@ -76,7 +76,7 @@ def fitness_f3(board: Sequence[int]) -> float:
 
 
 def fitness_f4(board: Sequence[int]) -> float:
-    """Penalize the queen with the largest number of conflicts.
+    """Fitness: penalize worst-case queen conflicts.
 
     Starts from the F2 perspective (non-conflicting pairs) and subtracts the
     worst per-queen conflict count to reduce concentration of conflicts.
@@ -100,7 +100,7 @@ def fitness_f4(board: Sequence[int]) -> float:
 
 
 def fitness_f5(board: Sequence[int]) -> float:
-    """Apply a quadratic penalty to diagonal clusters (strong discouragement).
+    """Fitness: quadratic penalty on diagonal clusters (strong).
 
     Clusters on the same diagonal incur a squared penalty to more strongly
     penalize larger clusters.
@@ -125,7 +125,7 @@ def fitness_f5(board: Sequence[int]) -> float:
 
 
 def fitness_f6(board: Sequence[int], lam: float = 0.3) -> float:
-    """Return the exponential fitness ``exp(-lam * conflicts(board))``.
+    """Fitness: exp(-lam * conflicts(board)).
 
     Parameters
     ----------

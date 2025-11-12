@@ -1,11 +1,21 @@
-"""Visualization utilities for analysis outputs."""
+"""Visualization utilities for analysis outputs.
+
+Graceful fallback: if matplotlib (or related plotting stack) is not available,
+the public functions print a concise message and return without raising.
+"""
 from __future__ import annotations
 
 import os
 from typing import Any, Dict, List, Optional, cast
 
-import matplotlib.pyplot as plt
-import numpy as np
+try:
+    import matplotlib.pyplot as plt  # type: ignore
+    import numpy as np  # type: ignore
+    _PLOTS_AVAILABLE = True
+except Exception:
+    plt = cast(Any, None)  # type: ignore
+    np = cast(Any, None)  # type: ignore
+    _PLOTS_AVAILABLE = False
 
 from .stats import ExperimentResults
 def _bt_canonical_entry(results: ExperimentResults, N: int) -> Dict[str, Any]:
@@ -35,6 +45,9 @@ def plot_comprehensive_analysis(
     raw_runs: Optional[Dict[str, Any]] = None,
     tuning_data: Optional[Dict[str, Any]] = None,
 ) -> None:
+    if not _PLOTS_AVAILABLE:
+        print("Plotting skipped: matplotlib not installed.")
+        return
     os.makedirs(out_dir, exist_ok=True)
 
     bt_sr = [1.0 if _bt_canonical_entry(results, N)["solution_found"] else 0.0 for N in N_values]
@@ -255,6 +268,9 @@ def plot_comprehensive_analysis(
 def plot_fitness_comparison(
     all_results: Dict[str, ExperimentResults], N_values: List[int], out_dir: str, raw_runs: Optional[Dict[str, Any]] = None
 ) -> None:
+    if not _PLOTS_AVAILABLE:
+        print("Plotting skipped: matplotlib not installed.")
+        return
     os.makedirs(out_dir, exist_ok=True)
     fitness_modes = list(all_results.keys())
 
@@ -372,6 +388,9 @@ def plot_fitness_comparison(
 def plot_statistical_analysis(
     all_results: Dict[str, ExperimentResults], N_values: List[int], out_dir: str, raw_runs: Optional[Dict[int, Dict[str, Any]]] = None
 ) -> None:
+    if not _PLOTS_AVAILABLE:
+        print("Plotting skipped: matplotlib not installed.")
+        return
     os.makedirs(out_dir, exist_ok=True)
 
     if not raw_runs:
@@ -475,11 +494,11 @@ def plot_statistical_analysis(
                     fontsize=14,
                 )
                 plt.grid(True, alpha=0.3)
-                mean_time = np.mean(sa_times)
-                std_time = np.std(sa_times)
-                plt.axvline(mean_time, color="red", linestyle="--", label=f"Mean: {mean_time:.3f}s")
-                plt.axvline(mean_time + std_time, color="red", linestyle=":", alpha=0.7, label=f"+/-1 sigma: {std_time:.3f}s")
-                plt.axvline(mean_time - std_time, color="red", linestyle=":", alpha=0.7)
+                mean_time = float(np.mean(sa_times))
+                std_time = float(np.std(sa_times))
+                plt.axvline(float(mean_time), color="red", linestyle="--", label=f"Mean: {mean_time:.3f}s")
+                plt.axvline(float(mean_time + std_time), color="red", linestyle=":", alpha=0.7, label=f"+/-1 sigma: {std_time:.3f}s")
+                plt.axvline(float(mean_time - std_time), color="red", linestyle=":", alpha=0.7)
                 plt.legend()
                 fname = os.path.join(out_dir, f"histogram_SA_times_N{N}.png")
                 plt.savefig(fname, bbox_inches="tight", dpi=300)
@@ -499,11 +518,11 @@ def plot_statistical_analysis(
                     fontsize=14,
                 )
                 plt.grid(True, alpha=0.3)
-                mean_time = np.mean(ga_times)
-                std_time = np.std(ga_times)
-                plt.axvline(mean_time, color="red", linestyle="--", label=f"Mean: {mean_time:.3f}s")
-                plt.axvline(mean_time + std_time, color="red", linestyle=":", alpha=0.7, label=f"+/-1 sigma: {std_time:.3f}s")
-                plt.axvline(mean_time - std_time, color="red", linestyle=":", alpha=0.7)
+                mean_time = float(np.mean(ga_times))
+                std_time = float(np.std(ga_times))
+                plt.axvline(float(mean_time), color="red", linestyle="--", label=f"Mean: {mean_time:.3f}s")
+                plt.axvline(float(mean_time + std_time), color="red", linestyle=":", alpha=0.7, label=f"+/-1 sigma: {std_time:.3f}s")
+                plt.axvline(float(mean_time - std_time), color="red", linestyle=":", alpha=0.7)
                 plt.legend()
                 fname = os.path.join(out_dir, f"histogram_GA_F{best_fitness}_times_N{N}.png")
                 plt.savefig(fname, bbox_inches="tight", dpi=300)
@@ -514,4 +533,7 @@ def plot_statistical_analysis(
 
 
 def plot_and_save(results: ExperimentResults, N_values: List[int], fitness_mode: str, out_dir: str) -> None:
+    if not _PLOTS_AVAILABLE:
+        print("Plotting skipped: matplotlib not installed.")
+        return
     plot_comprehensive_analysis(results, N_values, fitness_mode, out_dir)

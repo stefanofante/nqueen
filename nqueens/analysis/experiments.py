@@ -106,7 +106,7 @@ def run_experiments_with_best_ga(
             print(f"=== (Final) N = {N}, GA fitness F{fitness_mode} ===")
         else:
             enabled = "+".join([name for name, flag in (("BT", include_bt), ("SA", include_sa)) if flag]) or "NONE"
-            print(f"=== (Final) N = {N}, {enabled} (no GA) ===")
+            print(f"=== (Final) N = {N}, {enabled} ===")
 
         if include_bt:
             discovered = _discover_bt_solvers()
@@ -349,7 +349,7 @@ def run_experiments_with_best_ga_parallel(
             print(f"=== (Final Parallel) N = {N}, GA fitness F{fitness_mode} ===")
         else:
             enabled = "+".join([name for name, flag in (("BT", include_bt), ("SA", include_sa)) if flag]) or "NONE"
-            print(f"=== (Final Parallel) N = {N}, {enabled} (no GA) ===")
+            print(f"=== (Final Parallel) N = {N}, {enabled} ===")
 
         if include_bt:
             discovered = _discover_bt_solvers()

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.1.0] - 2025-11-12
 
+## [2.2.0] - 2025-11-12
+
+### Added (2.2.0)
+
+- New CLI flag `--list` to print available algorithms (BT, SA, GA), dynamically discovered Backtracking solvers, and GA fitness modes with concise descriptions.
+
+### Changed (2.2.0)
+
+- Removed any fitness references from BT-only and SA-only logs and banners; `-f/--fitness` is ignored when GA is not selected (no hard CLI validation).
+- Conditional CSV naming: when GA is absent, aggregated and raw CSV filenames no longer include fitness suffixes; GA/SA raw CSVs are only produced when those algorithms run.
+- Enhanced listing output: GA fitness descriptions are sourced from standardized one-line docstrings in `nqueens/fitness.py`.
+- Default configuration resolution: when `--config` is omitted, the CLI now loads `config.json` from the project root (same folder as `algoanalisys.py`). Listing `--list` uses the same default.
+
+### Fixed (2.2.0)
+
+- Clarified parallel/concurrent banners and gated GA-specific phases to show only when GA is included.
+
 ### Changed (2.1.0)
 
 - Modularized the orchestration layer into `nqueens/analysis/` with dedicated modules:

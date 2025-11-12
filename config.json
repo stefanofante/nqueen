@@ -5,17 +5,17 @@
             16,
             24,
             40,
-            80,
-            120
+            60,
+            80
         ],
-        "runs_sa_final": 40,
-        "runs_ga_final": 40,
+        "runs_sa_final": 20,
+        "runs_ga_final": 20,
         "runs_bt_final": 1,
         "runs_ga_tuning": 5,
         "output_dir": "results_nqueens_tuning"
     },
     "timeout_settings": {
-        "bt_time_limit": 120.0,
+        "bt_time_limit": 60.0,
         "sa_time_limit": 30.0,
         "ga_time_limit": 60.0,
         "experiment_timeout": 120.0

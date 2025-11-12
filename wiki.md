@@ -7,6 +7,9 @@ This wiki provides comprehensive documentation for the N-Queens comparative algo
 Filter which algorithms run using `--alg` (`-a`). Valid values: `BT`, `SA`, `GA` (repeatable or comma-separated).
 
 ```bash
+# List algorithms, BT solvers, and GA fitness modes
+python algoanalisys.py --list
+
 # GA only (experiments only; tuning on-demand)
 python algoanalisys.py -a GA
 
@@ -67,6 +70,7 @@ Modular orchestration layer:
 - `nqueens/analysis/reporting.py`: CSV exports for aggregated/raw data and logical cost analysis
 - `nqueens/analysis/plots.py`: chart generation (optional, requires matplotlib)
 - `nqueens/analysis/cli.py`: pipelines, CLI wiring, quick regression runner, flags: `--mode`, `--fitness`, `--validate`
+- `nqueens/analysis/cli.py`: pipelines, CLI wiring, quick regression runner, flags: `--mode`, `--fitness`, `--list`, `--validate`
 
 Compatibility facade:
 
@@ -620,9 +624,11 @@ def tune_ga_for_N(N, fitness_mode, pop_multipliers, gen_multipliers, pm_values):
 
 Column naming uses lowercase snake_case. Aggregates and logical-cost CSVs prefix fields with `bt_`, `sa_`, `ga_`. Time fields are in seconds.
 
-**Aggregated Results (`results_GA_<FITNESS>_tuned.csv`):**
+**Aggregated Results (contextual naming):**
 
 ```text
+# With GA present: results_GA_<FITNESS>_tuned.csv
+# Without GA:      results_BT.csv / results_SA.csv / results_BT_SA.csv
 n,
 bt_solution_found, bt_nodes_explored, bt_time_seconds,
 bt_first_solution_found, bt_first_nodes_explored, bt_first_time_seconds,
@@ -642,9 +648,11 @@ ga_pop_size, ga_max_gen, ga_pm, ga_pc, ga_tournament_size
 
 Nota: i campi `bt_*` senza suffisso fanno riferimento al solver ibrido `bt_nqueens_mcv_hybrid` per compatibilità; le colonne aggiuntive riportano i risultati per ogni variante BT.
 
-**Raw Data — Simulated Annealing (`raw_data_SA_<FITNESS>.csv`):**
+**Raw Data — Simulated Annealing:**
 
 ```text
+# With GA present: raw_data_SA_<FITNESS>.csv
+# Without GA:      raw_data_SA.csv
 n, run_id, algorithm, success, timeout, steps, time_seconds, evals, best_conflicts
 ```
 
@@ -655,15 +663,20 @@ n, run_id, algorithm, success, timeout, gen, time_seconds, evals, best_fitness, 
 pop_size, max_gen, pm, pc, tournament_size
 ```
 
-**Raw Data — Backtracking (`raw_data_BT_<FITNESS>.csv`):**
+**Raw Data — Backtracking:**
 
 ```text
+# With GA present: raw_data_BT_<FITNESS>.csv
+# Without GA:      raw_data_BT.csv
+# Note: generated only if BT is selected/run
 n, algorithm, solution_found, nodes_explored, time_seconds
 ```
 
-**Logical Cost Analysis (`logical_costs_<FITNESS>.csv`):**
+**Logical Cost Analysis:**
 
 ```text
+# With GA present: logical_costs_<FITNESS>.csv
+# Without GA:      logical_costs.csv
 n,
 bt_solution_found, bt_nodes_explored,
 sa_success_rate, sa_steps_mean_all, sa_steps_median_all, sa_evals_mean_all, sa_evals_median_all,
@@ -672,6 +685,30 @@ ga_success_rate, ga_gen_mean_all, ga_gen_median_all, ga_evals_mean_all, ga_evals
 ga_gen_mean_success, ga_evals_mean_success,
 bt_time_seconds, sa_time_mean_success, ga_time_mean_success
 ```
+
+### Logging Semantics
+
+- When `GA` is not selected, the CLI ignores any `--fitness/-f` filter and avoids mentioning fitness in banners and progress logs.
+- Plotting is optional; attempting to plot without `matplotlib` installed raises a clear runtime error only when plotting APIs are called.
+
+### Capability Listing (`--list`)
+
+Use `--list` to print discoverable capabilities (it reads `config.json` from the project root if present, otherwise uses defaults):
+
+```text
+Available algorithms: BT, SA, GA
+Backtracking solvers: first, lcv, mcv, mcv_hybrid
+GA fitness modes:
+    - F1 — Fitness: negative conflicts (higher is better).
+    - F2 — Fitness: number of non-conflicting queen pairs.
+    - F3 — Fitness: linear penalty on diagonal clusters (mild).
+    - F4 — Fitness: penalize worst-case queen conflicts.
+    - F5 — Fitness: quadratic penalty on diagonal clusters (strong).
+    - F6 — Fitness: exp(-lam * conflicts(board)).
+```
+
+- Backtracking solvers are discovered dynamically by prefix `bt_nqueens_*` in `nqueens.backtracking`.
+- Fitness descriptions are taken from the one-line docstrings of functions in `nqueens/fitness.py`.
 
 **Parameter Tuning Results (if enabled):**
 
@@ -781,6 +818,9 @@ python algoanalisys.py --fitness F1,F3,F5
 
 # Enable result/solution validation (extra assertions)
 python algoanalisys.py --validate
+
+# Use a custom configuration file (default is config.json next to algoanalisys.py)
+python algoanalisys.py --config /path/to/config.json
 
 # GA only (tuning + experiments)
 python algoanalisys.py -a GA
@@ -1015,6 +1055,10 @@ def new_algorithm(N, param1, param2, time_limit=None):
 4. Update comparative analysis charts
 5. Add performance benchmarking
 6. Document mathematical properties
+
+Note:
+
+- The first line of the fitness function docstring is used as the short description in the `--list` output. Keep it concise (one sentence).
 
 **Fitness Function Template:**
 

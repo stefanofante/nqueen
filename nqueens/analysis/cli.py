@@ -60,6 +60,7 @@ from nqueens.utils import is_valid_solution
 
 
 # ------------- Utils --------------------------------------------------------
+# Plotting functions handle missing dependencies internally in plots.py
 
 def parse_fitness_filters(fitness_args: Optional[List[str]]):
     """Normalize fitness filter CLI inputs into a flat list of labels.
@@ -114,6 +115,20 @@ def parse_bt_solver_filters(bt_args: Optional[List[str]]):
                 selected.append(token)
     # preserve order, remove dups
     return list(dict.fromkeys(selected)) or None
+
+
+def discover_bt_solver_labels() -> List[str]:
+    """Return the list of available Backtracking solver labels.
+
+    Discovers functions named ``bt_nqueens_*`` in ``nqueens.backtracking``
+    and returns their suffixes ordered alphabetically.
+    """
+    import inspect as _inspect
+    import nqueens.backtracking as _bt_mod
+
+    solvers = [name for name, fn in _inspect.getmembers(_bt_mod, _inspect.isfunction) if name.startswith("bt_nqueens_")]
+    labels = [name[len("bt_nqueens_"): ] for name in solvers]
+    return sorted(labels)
 
 
 def normalize_optimal_parameters(raw_params: Optional[Dict[Any, Any]]) -> Dict[Any, Any]:
@@ -235,13 +250,19 @@ def main_sequential(
     include_sa = (algorithms is None) or ("SA" in algorithms)
     include_ga = (algorithms is None) or ("GA" in algorithms)
 
-    for fitness_mode in selected_fitness:
+    # Print header once when GA is not included
+    if not include_ga:
         print("\n============================================")
-        if include_ga:
-            print(f"SEQUENTIAL PIPELINE FOR FITNESS {fitness_mode}")
-        else:
-            print("SEQUENTIAL PIPELINE")
+        print("SEQUENTIAL PIPELINE")
         print("============================================")
+
+    fitness_iter = selected_fitness if include_ga else [selected_fitness[0] if selected_fitness else "F1"]
+
+    for fitness_mode in fitness_iter:
+        if include_ga:
+            print("\n============================================")
+            print(f"SEQUENTIAL PIPELINE FOR FITNESS {fitness_mode}")
+            print("============================================")
 
         if not include_ga:
             best_ga_params_for_N: Dict[int, Dict[str, Any]] = {}
@@ -550,7 +571,10 @@ def main_parallel(
     print("PHASE 2: PARALLEL FINAL EXPERIMENTS")
     print("=" * 60)
 
-    for fitness_mode in selected_fitness:
+    # When GA is excluded, execute experiments only once (independent of fitness)
+    fitness_iter = selected_fitness if include_ga else [selected_fitness[0] if selected_fitness else "F1"]
+
+    for fitness_mode in fitness_iter:
         if include_ga:
             print(f"\nFinal experiments for fitness {fitness_mode}...")
         else:
@@ -744,7 +768,9 @@ def main_concurrent_tuning(
 
     all_results: Dict[str, Any] = {}
 
-    for fitness_mode in selected_fitness:
+    fitness_iter = selected_fitness if include_ga else [selected_fitness[0] if selected_fitness else "F1"]
+
+    for fitness_mode in fitness_iter:
         if include_ga:
             print(f"\nFinal experiments for fitness {fitness_mode}")
         else:
@@ -792,7 +818,9 @@ def main_concurrent_tuning(
         for fitness in selected_fitness:
             print(f"  Comprehensive analysis for GA-F{fitness}...")
             plot_comprehensive_analysis(
-                all_results[fitness], settings.N_VALUES, fitness, os.path.join(settings.OUT_DIR, f"analysis_F{fitness}"), raw_runs=None
+                all_results[fitness], settings.N_VALUES, fitness,
+                os.path.join(settings.OUT_DIR, f"analysis_F{fitness}"),
+                raw_runs=None,
             )
 
         print("  Comparing fitness functions...")
@@ -800,7 +828,8 @@ def main_concurrent_tuning(
 
         print("  Statistical analysis...")
         plot_statistical_analysis(
-            all_results, settings.N_VALUES, os.path.join(settings.OUT_DIR, "statistical_analysis"), raw_runs=None
+            all_results, settings.N_VALUES, os.path.join(settings.OUT_DIR, "statistical_analysis"),
+            raw_runs=None,
         )
 
     total_time = perf_counter() - start_total
@@ -913,9 +942,14 @@ def build_arg_parser():
     )
     tune_group = parser.add_mutually_exclusive_group()
     tune_group.add_argument("--tune", action="store_true", help="Run GA tuning before experiments (default is to reuse stored parameters).")
-    parser.add_argument("--config", default="config.json", help="Path to configuration file (default: config.json).")
+    parser.add_argument(
+        "--config",
+        default=None,
+        help="Path to configuration file (default: config.json alongside the main script).",
+    )
     parser.add_argument("--quick-test", action="store_true", help="Run quick regression tests (N=8) and exit.")
     parser.add_argument("--validate", action="store_true", help="Validate solutions and run consistency checks on results (extra assertions).")
+    parser.add_argument("--list", action="store_true", help="List available algorithms and discovered BT solvers, then exit.")
     return parser
 
 
@@ -927,6 +961,58 @@ def main() -> None:
     alg_filter = parse_algorithm_filters(args.alg)
     bt_solver_filter = parse_bt_solver_filters(getattr(args, "bt_solvers", None))
 
+    # Resolve default config path relative to project root (alongside main script)
+    project_root = Path(__file__).resolve().parents[2]
+    default_config_path = str(project_root / "config.json")
+
+    # Listing mode: show available algorithms and BT solvers, then exit
+    if getattr(args, "list", False):
+        print("Available algorithms: BT, SA, GA")
+        bt_labels = discover_bt_solver_labels()
+        if bt_labels:
+            print("Backtracking solvers:")
+            for label in bt_labels:
+                print(f"  - {label}")
+        else:
+            print("Backtracking solvers: none found")
+
+        # GA fitness modes (from config if available)
+        try:
+            cfg = ConfigManager(args.config or default_config_path)
+            fmodes = [m.upper() for m in cfg.get_fitness_modes()] or settings.FITNESS_MODES
+        except Exception:
+            fmodes = settings.FITNESS_MODES
+        print("GA fitness modes:")
+        try:
+            from nqueens import fitness as _fit_mod
+            from nqueens.fitness import get_fitness_function as _get_fit
+        except Exception:
+            _fit_mod = None  # type: ignore
+            _get_fit = None  # type: ignore
+        for m in fmodes:
+            fname = ""
+            fdesc = ""
+            if _get_fit is not None:
+                try:
+                    f = _get_fit(m)
+                    fn = getattr(f, "__name__", "")
+                    # Derive description from docstring (first line)
+                    doc = getattr(f, "__doc__", None) or ""
+                    doc_first = doc.strip().splitlines()[0] if doc else ""
+                    if fn == "<lambda>" and m == "F6" and _fit_mod is not None:
+                        fname = "fitness_f6(lam=0.3)"
+                        doc = getattr(_fit_mod.fitness_f6, "__doc__", "")
+                        doc_first = doc.strip().splitlines()[0] if doc else ""
+                    else:
+                        fname = fn or str(f)
+                    fdesc = doc_first
+                except Exception:
+                    fname = ""
+                    fdesc = ""
+            desc_part = f" — {fdesc}" if fdesc else ""
+            print(f"  - {m}{desc_part}")
+        return
+
     # Disallow fitness filters when GA is not selected
     if args.fitness and alg_filter is not None and "GA" not in alg_filter:
         parser.error("Invalid option: -f is only valid for GA (use -a GA)")
@@ -936,7 +1022,7 @@ def main() -> None:
         return
 
     try:
-        config_mgr, selected_fitness = apply_configuration(args.config, fitness_filter)
+        config_mgr, selected_fitness = apply_configuration(args.config or default_config_path, fitness_filter)
     except FileNotFoundError as exc:
         print(f"Configuration file not found: {exc}")
         raise SystemExit(1) from exc
