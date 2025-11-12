@@ -1,21 +1,22 @@
 """
-N-Queens Orchestrator and Analysis Utilities (modularized)
-=========================================================
+N-Queens Orchestrator and Analysis Utilities (modular layout)
+============================================================
 
-Questo file è ora un sottile "facciata" che re-esporta le API principali
-dall'implementazione modulare nel pacchetto `nqueens.analysis`.
+This module is a thin façade that re-exports the primary public APIs from the
+modular implementation under `nqueens.analysis`. It also acts as the executable
+entry point of the project when invoked as a script.
 
-- Le funzioni di orchestrazione e CLI vivono in `nqueens.analysis.cli`
-- I runner degli esperimenti in `nqueens.analysis.experiments`
-- Le utility di tuning in `nqueens.analysis.tuning`
-- Le statistiche tipate in `nqueens.analysis.stats`
-- Le esportazioni CSV in `nqueens.analysis.reporting`
-- I grafici in `nqueens.analysis.plots`
-- Le impostazioni globali in `nqueens.analysis.settings`
+- Command-line interface and orchestration live in `nqueens.analysis.cli`.
+- Experiment runners are in `nqueens.analysis.experiments`.
+- GA parameter tuning lives in `nqueens.analysis.tuning`.
+- Typed statistics and helpers are in `nqueens.analysis.stats`.
+- CSV export utilities are in `nqueens.analysis.reporting`.
+- Plotting/visualization utilities are in `nqueens.analysis.plots`.
+- Global configuration resides in `nqueens.analysis.settings`.
 
-L'obiettivo è separare responsabilità, facilitare la manutenzione e rendere il
-codice testabile e riusabile. Questo file mantiene i nomi pubblici originari
-per compatibilità all'indietro (es. i test importano da `algoanalisys`).
+Rationale: separate concerns for maintainability, enable focused testing of
+subsystems, and keep a stable import surface for dependents. Backward
+compatibility is preserved (tests and external users may `import algoanalisys`).
 """
 
 # Re-export types and helpers
@@ -172,3 +173,16 @@ __all__ = [
     "build_arg_parser",
     "main",
 ]
+
+def _run_as_script() -> None:
+    """Entrypoint quando eseguito direttamente come script.
+
+    Delega al `main()` definito in `nqueens.analysis.cli` che gestisce
+    l'argument parsing e l'orchestrazione delle pipeline.
+    """
+    # `main` è già importato dalla sezione CLI qui sopra
+    main()
+
+
+if __name__ == "__main__":
+    _run_as_script()

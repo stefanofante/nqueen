@@ -1,4 +1,9 @@
-"""Global settings and timeouts for the N-Queens analysis pipeline."""
+"""Global settings and timeouts for the N-Queens analysis pipeline.
+
+This module centralizes tunable constants used across the orchestration code.
+Values can be overridden at runtime via the configuration loader in
+`nqueens.analysis.cli.apply_configuration`.
+"""
 from __future__ import annotations
 
 import multiprocessing

@@ -30,7 +30,7 @@ def fitness_f1(board: Sequence[int]) -> float:
     Parameters
     ----------
     board : Sequence[int]
-        Configuration encoding ``board[col] = row]``.
+        Configuration encoding ``board[col] = row``.
 
     Returns
     -------

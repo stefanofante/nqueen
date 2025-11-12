@@ -1,4 +1,11 @@
-"""CLI and high-level pipelines for N-Queens experiments."""
+"""Command-line interface and high-level pipelines for N-Queens experiments.
+
+This module wires together configuration loading, optional GA tuning, and
+execution of final experiment suites (sequential, parallel, or concurrent
+across multiple fitness functions). It intentionally isolates I/O, argument
+parsing, and progress reporting from the core algorithmic modules so that the
+rest of the codebase remains easy to test programmatically.
+"""
 from __future__ import annotations
 
 import argparse
@@ -54,6 +61,12 @@ from nqueens.utils import is_valid_solution
 # ------------- Utils --------------------------------------------------------
 
 def parse_fitness_filters(fitness_args: Optional[List[str]]):
+    """Normalize fitness filter CLI inputs into a flat list of labels.
+
+    Accepts repeated flags (e.g., ``-f F1 -f F2``) and comma-separated lists
+    (e.g., ``-f F1,F3``). Returns ``None`` when no filter is provided so that
+    callers can fall back to the configured default set.
+    """
     if not fitness_args:
         return None
     selected: List[str] = []
@@ -66,6 +79,11 @@ def parse_fitness_filters(fitness_args: Optional[List[str]]):
 
 
 def normalize_optimal_parameters(raw_params: Optional[Dict[Any, Any]]) -> Dict[Any, Any]:
+    """Normalize keys of persisted GA parameters to integer N values.
+
+    Config files may store N as strings; this helper converts them to ints
+    where possible while preserving any non-integer keys verbatim.
+    """
     normalized: Dict[Any, Any] = {}
     if not raw_params:
         return normalized
@@ -78,6 +96,10 @@ def normalize_optimal_parameters(raw_params: Optional[Dict[Any, Any]]) -> Dict[A
 
 
 def ensure_parameters_for_all_n(params: Dict[int, Dict[str, Any]], n_values: List[int], fitness_mode: str) -> None:
+    """Validate that tuned GA parameters exist for every required N.
+
+    Raises a ``ValueError`` with a precise message if some sizes are missing.
+    """
     missing = [n for n in n_values if n not in params]
     if missing:
         missing_str = ", ".join(str(n) for n in missing)
@@ -88,6 +110,12 @@ def ensure_parameters_for_all_n(params: Dict[int, Dict[str, Any]], n_values: Lis
 
 
 def apply_configuration(config_path: str, fitness_filter: Optional[List[str]] = None) -> Tuple[ConfigManager, List[str]]:
+    """Load configuration and apply optional fitness filtering.
+
+    This function updates the global ``settings`` module in-place to reflect
+    values from ``config.json`` (or a user-specified path). It returns the
+    ``ConfigManager`` used and the list of selected fitness labels.
+    """
     config_mgr = ConfigManager(config_path)
 
     experiment_settings = config_mgr.get_experiment_settings()
@@ -139,6 +167,7 @@ def load_optimal_parameters(
     config_mgr: Optional[ConfigManager],
     n_values: List[int],
 ) -> Dict[int, Dict[str, Any]]:
+    """Load tuned GA parameters for a fitness label and verify coverage."""
     if config_mgr is None:
         raise ValueError("Config manager is required when skip-tuning is enabled.")
     params = normalize_optimal_parameters(config_mgr.get_optimal_parameters(fitness_mode))
@@ -154,6 +183,11 @@ def main_sequential(
     config_mgr: Optional[ConfigManager] = None,
     validate: bool = False,
 ) -> None:
+    """Run sequential GA tuning (optional) and final experiments per fitness.
+
+    Suitable when parallel resources are limited or when deterministic ordering
+    is preferred for debugging and reproducibility of I/O.
+    """
     os.makedirs(settings.OUT_DIR, exist_ok=True)
     selected_fitness = fitness_modes or settings.FITNESS_MODES
 
@@ -242,6 +276,7 @@ def main_parallel(
     config_mgr: Optional[ConfigManager] = None,
     validate: bool = False,
 ) -> None:
+    """Run GA tuning and final experiments leveraging process-level parallelism."""
     os.makedirs(settings.OUT_DIR, exist_ok=True)
     selected_fitness = fitness_modes or settings.FITNESS_MODES
 
@@ -401,6 +436,11 @@ def main_concurrent_tuning(
     config_mgr: Optional[ConfigManager] = None,
     validate: bool = False,
 ) -> None:
+    """Tune GA parameters for all selected fitness functions concurrently.
+
+    After tuning, it executes final experiments and generates comparative plots
+    across fitness functions. Intended as the default, comprehensive pipeline.
+    """
     os.makedirs(settings.OUT_DIR, exist_ok=True)
     selected_fitness = fitness_modes or settings.FITNESS_MODES
 
@@ -510,6 +550,14 @@ def main_concurrent_tuning(
 # ------------- Quick regression -------------------------------------------
 
 def run_quick_regression_tests() -> None:
+    """Execute a fast, deterministic smoke test for BT/SA/GA at N=8.
+
+    Verifies that:
+    - Each backtracking variant finds a valid solution and returns reasonable
+      node counts and times.
+    - SA and GA succeed under fixed seeds and common hyperparameters.
+    - The experiment pipeline produces a non-empty CSV in a temporary folder.
+    """
     print("Running quick regression tests (N=8) across all algorithms...")
 
     import inspect
@@ -574,6 +622,7 @@ def run_quick_regression_tests() -> None:
 # ------------- CLI wiring --------------------------------------------------
 
 def build_arg_parser():
+    """Construct the argument parser for the CLI entry point."""
     parser = argparse.ArgumentParser(description="Run N-Queens tuning and experiment pipelines.")
     parser.add_argument(
         "--mode",
@@ -595,6 +644,7 @@ def build_arg_parser():
 
 
 def main() -> None:
+    """CLI entry point: parse arguments and dispatch to the chosen pipeline."""
     parser = build_arg_parser()
     args = parser.parse_args()
     fitness_filter = parse_fitness_filters(args.fitness)

@@ -1,4 +1,9 @@
-"""CSV exports for experiment outputs (results and raw data)."""
+"""CSV export utilities for experiment outputs (aggregates and raw runs).
+
+These helpers materialize concise CSV summaries as well as full per-run raw
+data for downstream analysis or spreadsheet inspection. Filenames include the
+GA fitness label to disambiguate multi-fitness experiments.
+"""
 from __future__ import annotations
 
 import csv
@@ -9,6 +14,7 @@ from .stats import ExperimentResults
 
 
 def save_results_to_csv(results: ExperimentResults, N_values: List[int], fitness_mode: str, out_dir: str) -> None:
+    """Write compact per-N aggregate metrics for BT/SA/GA to CSV."""
     os.makedirs(out_dir, exist_ok=True)
     filename = os.path.join(out_dir, f"results_GA_{fitness_mode}_tuned.csv")
 
@@ -127,6 +133,7 @@ def save_results_to_csv(results: ExperimentResults, N_values: List[int], fitness
 
 
 def save_raw_data_to_csv(results: ExperimentResults, N_values: List[int], fitness_mode: str, out_dir: str) -> None:
+    """Write full per-run raw data for SA, GA, and BT to CSV files."""
     os.makedirs(out_dir, exist_ok=True)
 
     sa_filename = os.path.join(out_dir, f"raw_data_SA_{fitness_mode}.csv")
@@ -216,6 +223,7 @@ def save_raw_data_to_csv(results: ExperimentResults, N_values: List[int], fitnes
 
 
 def save_logical_cost_analysis(results: ExperimentResults, N_values: List[int], fitness_mode: str, out_dir: str) -> None:
+    """Write a CSV focused on hardware-independent 'logical cost' metrics."""
     os.makedirs(out_dir, exist_ok=True)
     filename = os.path.join(out_dir, f"logical_costs_{fitness_mode}.csv")
 

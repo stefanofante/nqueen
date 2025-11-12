@@ -1,4 +1,13 @@
-"""Final experiments runners for BT/SA/GA (sequential and parallel)."""
+"""Final experiment runners for BT/SA/GA (sequential and parallel).
+
+These routines execute repeatable batches of runs for Backtracking (BT),
+Simulated Annealing (SA), and Genetic Algorithm (GA) given a set of board
+sizes and, for GA, a mapping of tuned hyperparameters per N.
+
+Outputs are structured dictionaries suitable for CSV export and plotting.
+Validation hooks optionally check solution correctness and consistency of
+reported metrics.
+"""
 from __future__ import annotations
 
 from concurrent.futures import ProcessPoolExecutor
@@ -24,11 +33,13 @@ from nqueens.utils import is_valid_solution
 # Reusable workers -----------------------------------------------------------
 
 def run_single_sa_experiment(params: Tuple[int, int, float, float]):
+    """Worker wrapper to invoke a single SA run (for parallel mapping)."""
     N, max_iter, T0, alpha = params
     return sa_nqueens(N, max_iter=max_iter, T0=T0, alpha=alpha, time_limit=SA_TIME_LIMIT)
 
 
 def run_single_ga_experiment(params: Tuple[int, int, int, float, float, int, str]):
+    """Worker wrapper to invoke a single GA run (for parallel mapping)."""
     N, pop_size, max_gen, pc, pm, tournament_size, fitness_mode = params
     return ga_nqueens(
         N,
@@ -54,6 +65,13 @@ def run_experiments_with_best_ga(
     progress_label: Optional[str] = None,
     validate: bool = False,
 ) -> ExperimentResults:
+    """Run sequential final experiments with tuned GA hyperparameters.
+
+    For each N in ``N_values``, this function performs:
+    - One deterministic BT run (timeout-aware).
+    - ``runs_sa`` SA runs with a size-dependent iteration cap.
+    - ``runs_ga`` GA runs using the tuned parameters for that N.
+    """
     results = cast(ExperimentResults, {"BT": {}, "SA": {}, "GA": {}})
     progress = ProgressPrinter(len(N_values), progress_label) if progress_label else None
 
@@ -206,6 +224,11 @@ def run_experiments_with_best_ga_parallel(
     progress_label: Optional[str] = None,
     validate: bool = False,
 ) -> ExperimentResults:
+    """Parallel version of final experiments using process pools.
+
+    SA and GA runs are distributed across processes according to
+    ``NUM_PROCESSES`` to accelerate experimentation on multi-core systems.
+    """
     results = cast(ExperimentResults, {"BT": {}, "SA": {}, "GA": {}})
     progress = ProgressPrinter(len(N_values), progress_label) if progress_label else None
 
@@ -357,6 +380,7 @@ def run_experiments_parallel(
     best_ga_params_for_N: Dict[int, Dict[str, Any]],
     progress_label: Optional[str] = None,
 ) -> ExperimentResults:
+    """Backward-compatible alias retaining the old public name."""
     del runs_bt  # BT is always deterministic here
     return run_experiments_with_best_ga_parallel(
         N_values=N_values,

@@ -1,4 +1,8 @@
-"""Typed result shapes and statistics helpers for the analysis pipeline."""
+"""Typed result shapes and statistics helpers for the analysis pipeline.
+
+Defines ``TypedDict`` structures for experiment outputs and provides utilities
+to compute robust aggregate statistics across heterogeneous result records.
+"""
 from __future__ import annotations
 
 import statistics
@@ -120,9 +124,10 @@ class ProgressPrinter:
 
 
 def compute_detailed_statistics(values: List[float], label: str = "") -> StatsSummary:
-    """Compute detailed summary statistics for a sequence of numbers.
+    """Compute summary statistics for a numeric sequence.
 
-    Handles empty inputs gracefully by returning a structure with None fields.
+    Returns a consistent structure with ``None``-filled fields on empty input to
+    simplify downstream CSV writing and plotting.
     """
     if not values:
         return {
@@ -166,7 +171,12 @@ def compute_detailed_statistics(values: List[float], label: str = "") -> StatsSu
 def compute_grouped_statistics(
     results_list: List[Dict[str, Any]], success_key: str = "success"
 ) -> Dict[str, Any]:
-    """Aggregate metrics by outcome groups (success, failure, timeout)."""
+    """Aggregate metrics by outcome groups (success, failure, timeout).
+
+    The input is a list of heterogeneous dictionaries returned by algorithm
+    runners; this function inspects the presence of keys and computes
+    per-group and overall summaries for common metrics.
+    """
     successes = [r for r in results_list if r.get(success_key, False)]
     timeouts = [r for r in results_list if r.get("timeout", False)]
     failures = [r for r in results_list if not r.get(success_key, False) and not r.get("timeout", False)]

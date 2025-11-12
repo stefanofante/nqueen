@@ -1,4 +1,8 @@
-"""GA parameter tuning (sequential and parallel)."""
+"""GA hyperparameter tuning (sequential and parallel).
+
+Provides exhaustive grid-search routines and parallelized evaluators to select
+robust GA hyperparameters for each board size N and fitness function.
+"""
 from __future__ import annotations
 
 import statistics
@@ -17,7 +21,7 @@ from nqueens.genetic import ga_nqueens
 # -------- Worker wrappers (must be top-level callables for ProcessPoolExecutor)
 
 def run_single_ga_experiment(params: Tuple[int, int, int, float, float, int, str]):
-    """Execute a single GA run with provided parameters."""
+    """Execute a single GA run with provided parameters (for executors)."""
     N, pop_size, max_gen, pc, pm, tournament_size, fitness_mode = params
     return ga_nqueens(
         N,
@@ -32,7 +36,10 @@ def run_single_ga_experiment(params: Tuple[int, int, int, float, float, int, str
 
 
 def test_parameter_combination_parallel(params: Tuple[int, str, int, int, float, float, int, int]) -> Dict[str, Any]:
-    """Evaluate one GA parameter combination with multiple parallel runs."""
+    """Evaluate one GA parameter combination using multiple parallel runs.
+
+    Returns aggregate success rate and average generations to success.
+    """
     N, fitness_mode, pop_size, max_gen, pc, pm, tournament_size, runs_tuning = params
 
     run_params = [
@@ -77,7 +84,12 @@ def tune_ga_for_N(
     tournament_size: int,
     runs_tuning: int = 10,
 ) -> Dict[str, Any]:
-    """Exhaustive grid search to identify robust GA hyperparameters."""
+    """Exhaustive grid search to identify robust GA hyperparameters.
+
+    Iterates over population-size and generation multipliers and mutation rates,
+    evaluating each combination ``runs_tuning`` times. Best candidate is chosen
+    by success-rate, with average successful generations as a tiebreaker.
+    """
     best: Optional[Dict[str, Any]] = None
 
     for k in pop_multipliers:
@@ -145,7 +157,7 @@ def tune_ga_for_N_parallel(
     tournament_size: int,
     runs_tuning: int = 10,
 ) -> Dict[str, Any]:
-    """Parallel version of GA tuning for a single (N, fitness_mode)."""
+    """Parallel version of GA tuning for a single ``(N, fitness_mode)`` pair."""
     print(
         f"  Preparazione {len(pop_multipliers) * len(gen_multipliers) * len(pm_values)} combinazioni di parametri..."
     )
@@ -207,7 +219,7 @@ def tune_all_fitness_parallel(
     tournament_size: int,
     runs_tuning: int = 10,
 ) -> Dict[str, Dict[str, Any]]:
-    """Tune GA parameters for ALL fitness functions concurrently for a given N."""
+    """Tune GA parameters for all fitness functions concurrently for a given N."""
     print(f"Tuning contemporaneo di {len(fitness_modes)} fitness per N={N}")
 
     tuning_params = [
