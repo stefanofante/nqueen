@@ -140,6 +140,8 @@ def conflicts(board):
 - **Determinism**: Reproducible results
 - **Time Complexity**: O(N!) worst case, often much better with pruning
 
+Note: nelle analisi/esperimenti viene usata di default la variante ibrida `bt_nqueens_mcv_hybrid` (selezione MCV + look-ahead parziale stile LCV) per ridurre backtrack su N grandi. Rimangono disponibili `bt_nqueens_first`, `bt_nqueens_mcv`, `bt_nqueens_lcv`.
+
 **Code Structure:**
 
 ```python
@@ -623,6 +625,10 @@ Column naming uses lowercase snake_case. Aggregates and logical-cost CSVs prefix
 ```text
 n,
 bt_solution_found, bt_nodes_explored, bt_time_seconds,
+bt_first_solution_found, bt_first_nodes_explored, bt_first_time_seconds,
+bt_mcv_solution_found, bt_mcv_nodes_explored, bt_mcv_time_seconds,
+bt_lcv_solution_found, bt_lcv_nodes_explored, bt_lcv_time_seconds,
+bt_mcv_hybrid_solution_found, bt_mcv_hybrid_nodes_explored, bt_mcv_hybrid_time_seconds,
 sa_success_rate, sa_timeout_rate, sa_failure_rate, sa_total_runs, sa_successes, sa_failures, sa_timeouts,
 sa_success_steps_mean, sa_success_steps_median, sa_success_evals_mean, sa_success_evals_median,
 sa_timeout_steps_mean, sa_timeout_steps_median, sa_timeout_evals_mean, sa_timeout_evals_median,
@@ -633,6 +639,8 @@ ga_timeout_gen_mean, ga_timeout_gen_median, ga_timeout_evals_mean, ga_timeout_ev
 ga_success_time_mean, ga_success_time_median,
 ga_pop_size, ga_max_gen, ga_pm, ga_pc, ga_tournament_size
 ```
+
+Nota: i campi `bt_*` senza suffisso fanno riferimento al solver ibrido `bt_nqueens_mcv_hybrid` per compatibilità; le colonne aggiuntive riportano i risultati per ogni variante BT.
 
 **Raw Data — Simulated Annealing (`raw_data_SA_<FITNESS>.csv`):**
 

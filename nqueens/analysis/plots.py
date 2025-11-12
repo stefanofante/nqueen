@@ -8,6 +8,18 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from .stats import ExperimentResults
+def _bt_canonical_entry(results: ExperimentResults, N: int) -> Dict[str, Any]:
+    entry = results["BT"][N]
+    if isinstance(entry.get("solution_found") if isinstance(entry, dict) else None, bool):
+        return entry  # legacy single-solver structure
+    # New per-solver dict: pick preferred solver if available
+    priority = ["mcv_hybrid", "mcv", "lcv", "first"]
+    for key in priority:
+        if key in entry:
+            return entry[key]
+    # Fallback: take arbitrary first
+    first_key = next(iter(entry))
+    return entry[first_key]
 
 try:
     import seaborn as sns  # noqa: F401
@@ -25,7 +37,7 @@ def plot_comprehensive_analysis(
 ) -> None:
     os.makedirs(out_dir, exist_ok=True)
 
-    bt_sr = [1.0 if results["BT"][N]["solution_found"] else 0.0 for N in N_values]
+    bt_sr = [1.0 if _bt_canonical_entry(results, N)["solution_found"] else 0.0 for N in N_values]
     sa_sr = [cast(float, results["SA"][N].get("success_rate", 0.0) or 0.0) for N in N_values]
     ga_sr = [cast(float, results["GA"][N].get("success_rate", 0.0) or 0.0) for N in N_values]
 
@@ -55,7 +67,7 @@ def plot_comprehensive_analysis(
     plt.close()
     print(f"Saved success-rate chart: {fname}")
 
-    bt_time = [results["BT"][N]["time"] if results["BT"][N]["solution_found"] else 0 for N in N_values]
+    bt_time = [_bt_canonical_entry(results, N)["time"] if _bt_canonical_entry(results, N)["solution_found"] else 0 for N in N_values]
     sa_time = [cast(float, results["SA"][N].get("success_time", {}).get("mean", 0.0) or 0.0) for N in N_values]
     ga_time = [cast(float, results["GA"][N].get("success_time", {}).get("mean", 0.0) or 0.0) for N in N_values]
 
@@ -79,7 +91,7 @@ def plot_comprehensive_analysis(
     plt.close()
     print(f"Saved execution-time chart (log scale): {fname}")
 
-    bt_nodes = [results["BT"][N]["nodes"] for N in N_values]
+    bt_nodes = [_bt_canonical_entry(results, N)["nodes"] for N in N_values]
     sa_steps = [cast(float, results["SA"][N].get("success_steps", {}).get("mean", 0.0) or 0.0) for N in N_values]
     ga_gen = [cast(float, results["GA"][N].get("success_gen", {}).get("mean", 0.0) or 0.0) for N in N_values]
 

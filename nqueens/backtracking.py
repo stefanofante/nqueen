@@ -10,6 +10,9 @@ N-Queens problem and provides three entry points:
 - bt_nqueens_lcv(size, time_limit=None): backtracking with the Least Constraining
     Value heuristic (for the chosen column, prefer rows that leave the most
     legal choices for remaining columns).
+- bt_nqueens_mcv_hybrid(size, time_limit=None): MCV selection plus partial
+    LCV-like scoring bounded to a small subset of columns (optimized for
+    large N while keeping per-step overhead small).
 
 All functions are non-recursive and return a tuple:
         (solution: Optional[List[int]], nodes_explored: int, elapsed_seconds: float)
@@ -424,5 +427,133 @@ def bt_nqueens_lcv(size: int, time_limit: Optional[float] = None) -> Tuple[Optio
         # Choose values that constrain the future search the least (higher score first).
         candidates.sort(key=lambda r: (-scores[r], r))
         return column, candidates
+
+    return _iterative_backtracking(size, select_column, time_limit)
+
+
+def bt_nqueens_mcv_hybrid(size: int, time_limit: Optional[float] = None) -> Tuple[Optional[List[int]], int, float]:
+    """Hybrid MCV with partial LCV-like scoring optimized for large N.
+
+    Strategy
+    --------
+    - Variable ordering: MCV (choose the unassigned column with the fewest
+      currently legal rows). Tie-break by the smallest column index for
+      determinism.
+    - Value ordering: for the chosen column, compute feasible rows and rank
+      them using a cheap, partial look-ahead akin to LCV but bounded to a
+      small subset of the remaining columns (sample size K). This preserves
+      much of LCV's pruning benefit while keeping per-step cost low for large N.
+
+    Heuristic details
+    ------------------
+    - For each candidate row r of the selected column c, we temporarily place
+      the queen at (r, c), then measure the number of options for up to K
+      other unassigned columns (smallest indices for determinism).
+    - If any probed column has zero options under this tentative choice, we
+      assign score -1 to r (try it last). Otherwise, the score is the sum of
+      option counts across the probed columns (higher is better).
+    - Final order: sort by descending score, then by proximity to the board
+      center (prefer central rows), then by row index for determinism.
+
+    Parameters
+    ----------
+    size : int
+        Board size N.
+    time_limit : float | None
+        Optional wall-clock time limit in seconds.
+
+    Returns
+    -------
+    (solution, nodes_explored, elapsed_seconds)
+        See module-level contract. Deterministic for a deterministic selector.
+    """
+
+    # Bound the partial look-ahead to a small number of columns for scalability.
+    SAMPLE_K_BASE = 8
+
+    offset = size - 1
+
+    def select_column(
+        unassigned: List[int],
+        row_used: List[bool],
+        diag1_used: List[bool],
+        diag2_used: List[bool],
+    ) -> Tuple[Optional[int], List[int]]:
+        # 1) MCV selection of the next column
+        best_column: Optional[int] = None
+        best_candidates: List[int] = []
+        min_candidates = size + 1
+
+        for column in unassigned:
+            candidates = _available_rows(size, column, row_used, diag1_used, diag2_used)
+            cand_len = len(candidates)
+            if cand_len == 0:
+                # Immediate dead-end; force backtrack on this column.
+                return column, []
+            if cand_len < min_candidates or (cand_len == min_candidates and (best_column is None or column < best_column)):
+                best_column = column
+                best_candidates = candidates
+                min_candidates = cand_len
+                if min_candidates == 1:
+                    break
+
+        if best_column is None:
+            return None, []
+
+        # 2) Partial LCV-like scoring over a small deterministic subset of columns
+        if not best_candidates:
+            return best_column, []
+
+        # Choose up to K other columns to probe (smallest indices for determinism)
+        others = sorted(c for c in unassigned if c != best_column)
+        sample_k = min(SAMPLE_K_BASE, len(others))
+        probe_columns = others[:sample_k]
+
+        # If there is nothing to probe, return natural order
+        if not probe_columns:
+            return best_column, best_candidates
+
+        # Score each candidate row by aggregate options across the probe set
+        scores = {}
+        center = (size - 1) / 2.0
+
+        for row in best_candidates:
+            # Tentatively place (best_column, row)
+            diag1_index = row - best_column + offset
+            diag2_index = row + best_column
+            row_used[row] = True
+            diag1_used[diag1_index] = True
+            diag2_used[diag2_index] = True
+
+            total_options = 0
+            feasible = True
+            for col in probe_columns:
+                opts = _available_rows(size, col, row_used, diag1_used, diag2_used)
+                if not opts:
+                    feasible = False
+                    break
+                total_options += len(opts)
+
+            # Revert tentative placement
+            row_used[row] = False
+            diag1_used[diag1_index] = False
+            diag2_used[diag2_index] = False
+
+            if feasible:
+                # Higher total options is better; use negative distance-to-center as tiebreaker
+                centrality = -abs(row - center)
+                scores[row] = (1, total_options, centrality)
+            else:
+                scores[row] = (0, -1, -abs(row - center))
+
+        # Sort by feasibility flag desc, then total_options desc, then centrality desc, then row asc
+        best_candidates.sort(key=lambda r: (
+            scores[r][0], scores[r][1], scores[r][2], -r
+        ), reverse=True)
+        # Final stable tiebreak to ensure deterministic ascending row when all equal in tuple above
+        best_candidates.sort(key=lambda r: r)
+        best_candidates.sort(key=lambda r: (scores[r][0], scores[r][1], scores[r][2]), reverse=True)
+
+        return best_column, best_candidates
 
     return _iterative_backtracking(size, select_column, time_limit)

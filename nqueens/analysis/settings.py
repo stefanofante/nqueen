@@ -21,11 +21,11 @@ RUNS_BT_FINAL: int = 1  # Backtracking is deterministic; one run per N is suffic
 RUNS_GA_TUNING: int = 5
 
 # Backtracking time limit in seconds (None = no limit)
-BT_TIME_LIMIT: Optional[float] = 60 * 5.0  # e.g., 5 minutes
+BT_TIME_LIMIT: Optional[float] = 60 * 2.0  # e.g., 2 minutes
 
 # SA and GA time limits in seconds (None = no limit)
 SA_TIME_LIMIT: Optional[float] = 120.0  # Simulated Annealing
-GA_TIME_LIMIT: Optional[float] = 240.0  # Genetic Algorithm
+GA_TIME_LIMIT: Optional[float] = 120.0  # Genetic Algorithm
 
 # Global timeout per experiment bundle (None = no limit)
 EXPERIMENT_TIMEOUT: Optional[float] = 120.0  # ~2 minutes per full experiment
@@ -36,7 +36,7 @@ OUT_DIR: str = "results_nqueens_tuning"
 # GA tuning grid (defines the parameter search space)
 POP_MULTIPLIERS: List[int] = [4, 8, 16]       # pop_size ≈ {k}*N
 GEN_MULTIPLIERS: List[int] = [30, 50, 80]     # max_gen ≈ {m}*N
-PM_VALUES: List[float] = [0.05, 0.1, 0.15]    # mutation rate candidates
+PM_VALUES: List[float] = [0.05, 0.1, 0.2]    # mutation rate candidates
 PC_FIXED: float = 0.8                          # fixed crossover probability
 TOURNAMENT_SIZE_FIXED: int = 3                 # tournament size for selection
 

@@ -150,6 +150,8 @@ def bt_nqueens_first(N, time_limit=None):
 - **Deterministic**: Always finds the same solution
 - **Complete**: Guaranteed to find a solution if one exists
 
+Note: nelle analisi finali viene utilizzata per default la variante ibrida `bt_nqueens_mcv_hybrid` (MCV + look-ahead parziale) per migliori prestazioni su N grandi; l’API espone anche `bt_nqueens_first`, `bt_nqueens_mcv`, `bt_nqueens_lcv`.
+
 ### 2. Simulated Annealing
 
 ```python
@@ -412,6 +414,10 @@ The CSV exports use lowercase snake_case column names. Aggregated metrics use su
 ```text
 n,
 bt_solution_found, bt_nodes_explored, bt_time_seconds,
+bt_first_solution_found, bt_first_nodes_explored, bt_first_time_seconds,
+bt_mcv_solution_found, bt_mcv_nodes_explored, bt_mcv_time_seconds,
+bt_lcv_solution_found, bt_lcv_nodes_explored, bt_lcv_time_seconds,
+bt_mcv_hybrid_solution_found, bt_mcv_hybrid_nodes_explored, bt_mcv_hybrid_time_seconds,
 sa_success_rate, sa_timeout_rate, sa_failure_rate, sa_total_runs, sa_successes, sa_failures, sa_timeouts,
 sa_success_steps_mean, sa_success_steps_median, sa_success_evals_mean, sa_success_evals_median,
 sa_timeout_steps_mean, sa_timeout_steps_median, sa_timeout_evals_mean, sa_timeout_evals_median,
@@ -422,6 +428,8 @@ ga_timeout_gen_mean, ga_timeout_gen_median, ga_timeout_evals_mean, ga_timeout_ev
 ga_success_time_mean, ga_success_time_median,
 ga_pop_size, ga_max_gen, ga_pm, ga_pc, ga_tournament_size
 ```
+
+Note: i tre campi `bt_*` senza suffisso rappresentano il solver ibrido `bt_nqueens_mcv_hybrid` per retro-compatibilità. Le colonne per-solver riportano i dettagli di ciascuna variante BT.
 
 #### Raw Data — Simulated Annealing (`raw_data_SA_<FITNESS>.csv`)
 

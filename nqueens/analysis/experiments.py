@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from concurrent.futures import ProcessPoolExecutor
 from typing import Any, Dict, List, Optional, Tuple, cast
+import inspect
 
 from .settings import (
     SA_TIME_LIMIT,
@@ -24,7 +25,12 @@ from .stats import (
     compute_grouped_statistics,
     ProgressPrinter,
 )
-from nqueens.backtracking import bt_nqueens_first
+from nqueens.backtracking import (
+    bt_nqueens_first,
+    bt_nqueens_mcv,
+    bt_nqueens_lcv,
+    bt_nqueens_mcv_hybrid,
+)
 from nqueens.simulated_annealing import sa_nqueens
 from nqueens.genetic import ga_nqueens
 from nqueens.utils import is_valid_solution
@@ -55,6 +61,20 @@ def run_single_ga_experiment(params: Tuple[int, int, int, float, float, int, str
 
 # Sequential runner ----------------------------------------------------------
 
+def _discover_bt_solvers() -> List[Tuple[str, Any]]:
+    import nqueens.backtracking as bt_mod
+    solvers = [(name, fn) for name, fn in inspect.getmembers(bt_mod, inspect.isfunction) if name.startswith("bt_nqueens_")]
+    # Map to short labels by removing prefix
+    labelled = []
+    for name, fn in solvers:
+        label = name[len("bt_nqueens_"):]
+        labelled.append((label, fn))
+    # Preferred order if present
+    priority = {"mcv_hybrid": 0, "mcv": 1, "lcv": 2, "first": 3}
+    labelled.sort(key=lambda x: (priority.get(x[0], 100), x[0]))
+    return labelled
+
+
 def run_experiments_with_best_ga(
     N_values: List[int],
     runs_sa: int,
@@ -67,6 +87,7 @@ def run_experiments_with_best_ga(
     include_bt: bool = True,
     include_sa: bool = True,
     include_ga: bool = True,
+    bt_solvers: Optional[List[str]] = None,
 ) -> ExperimentResults:
     """Run sequential final experiments with tuned GA hyperparameters.
 
@@ -75,21 +96,39 @@ def run_experiments_with_best_ga(
     - ``runs_sa`` SA runs with a size-dependent iteration cap.
     - ``runs_ga`` GA runs using the tuned parameters for that N.
     """
-    results = cast(ExperimentResults, {"BT": {}, "SA": {}, "GA": {}})
+    results: Any = {"BT": {}, "SA": {}, "GA": {}}
     progress = ProgressPrinter(len(N_values), progress_label) if progress_label else None
 
     for index, N in enumerate(N_values, start=1):
         if progress:
             progress.update(index, f"N={N}")
-        print(f"=== (Final) N = {N}, GA fitness {fitness_mode} ===")
+        if include_ga:
+            print(f"=== (Final) N = {N}, GA fitness F{fitness_mode} ===")
+        else:
+            enabled = "+".join([name for name, flag in (("BT", include_bt), ("SA", include_sa)) if flag]) or "NONE"
+            print(f"=== (Final) N = {N}, {enabled} (no GA) ===")
 
         if include_bt:
-            sol, nodes, t = bt_nqueens_first(N, time_limit=bt_time_limit)
-            if validate and sol is not None and not is_valid_solution(sol):
-                raise AssertionError(f"Invalid BT solution produced for N={N}: {sol}")
-            results["BT"][N] = {"solution_found": sol is not None, "nodes": nodes, "time": t}
+            discovered = _discover_bt_solvers()
+            if bt_solvers:
+                wanted = {s.strip() for s in bt_solvers}
+                available = {label for label, _ in discovered}
+                unknown = wanted.difference(available)
+                if unknown:
+                    raise ValueError("Unknown BT solver(s): " + ", ".join(sorted(unknown)) + ". Available: " + ", ".join(sorted(available)))
+                selected = [(label, fn) for label, fn in discovered if label in wanted]
+            else:
+                selected = discovered
+
+            bt_results: Dict[str, Dict[str, Any]] = {}
+            for label, fn in selected:
+                sol, nodes, t = fn(N, time_limit=bt_time_limit)
+                if validate and sol is not None and not is_valid_solution(sol):
+                    raise AssertionError(f"Invalid BT solution produced for N={N} by {label}: {sol}")
+                bt_results[label] = {"solution_found": sol is not None, "nodes": nodes, "time": t}
+            results["BT"][N] = bt_results
         else:
-            results["BT"][N] = {"solution_found": False, "nodes": 0, "time": 0.0}
+            results["BT"][N] = {}
 
         if include_sa:
             sa_runs: List[Dict[str, Any]] = []
@@ -293,27 +332,46 @@ def run_experiments_with_best_ga_parallel(
     include_bt: bool = True,
     include_sa: bool = True,
     include_ga: bool = True,
+    bt_solvers: Optional[List[str]] = None,
 ) -> ExperimentResults:
     """Parallel version of final experiments using process pools.
 
     SA and GA runs are distributed across processes according to
     ``NUM_PROCESSES`` to accelerate experimentation on multi-core systems.
     """
-    results = cast(ExperimentResults, {"BT": {}, "SA": {}, "GA": {}})
+    results: Any = {"BT": {}, "SA": {}, "GA": {}}
     progress = ProgressPrinter(len(N_values), progress_label) if progress_label else None
 
     for index, N in enumerate(N_values, start=1):
         if progress:
             progress.update(index, f"N={N}")
-        print(f"=== (Final Parallel) N = {N}, GA fitness {fitness_mode} ===")
+        if include_ga:
+            print(f"=== (Final Parallel) N = {N}, GA fitness F{fitness_mode} ===")
+        else:
+            enabled = "+".join([name for name, flag in (("BT", include_bt), ("SA", include_sa)) if flag]) or "NONE"
+            print(f"=== (Final Parallel) N = {N}, {enabled} (no GA) ===")
 
         if include_bt:
-            sol, nodes, t = bt_nqueens_first(N, time_limit=bt_time_limit)
-            if validate and sol is not None and not is_valid_solution(sol):
-                raise AssertionError(f"Invalid BT solution produced for N={N}: {sol}")
-            results["BT"][N] = {"solution_found": sol is not None, "nodes": nodes, "time": t}
+            discovered = _discover_bt_solvers()
+            if bt_solvers:
+                wanted = {s.strip() for s in bt_solvers}
+                available = {label for label, _ in discovered}
+                unknown = wanted.difference(available)
+                if unknown:
+                    raise ValueError("Unknown BT solver(s): " + ", ".join(sorted(unknown)) + ". Available: " + ", ".join(sorted(available)))
+                selected = [(label, fn) for label, fn in discovered if label in wanted]
+            else:
+                selected = discovered
+
+            bt_results: Dict[str, Dict[str, Any]] = {}
+            for label, fn in selected:
+                sol, nodes, t = fn(N, time_limit=bt_time_limit)
+                if validate and sol is not None and not is_valid_solution(sol):
+                    raise AssertionError(f"Invalid BT solution produced (parallel) for N={N} by {label}: {sol}")
+                bt_results[label] = {"solution_found": sol is not None, "nodes": nodes, "time": t}
+            results["BT"][N] = bt_results
         else:
-            results["BT"][N] = {"solution_found": False, "nodes": 0, "time": 0.0}
+            results["BT"][N] = {}
 
         if include_sa:
             print(f"  Running {runs_sa} SA runs in parallel...")

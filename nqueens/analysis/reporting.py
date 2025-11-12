@@ -13,6 +13,23 @@ from typing import Any, Dict, List
 from .stats import ExperimentResults
 
 
+def _detect_presence(results: ExperimentResults, N_values: List[int]) -> tuple[bool, bool, bool]:
+    """Infer which subsystems have actual runs across provided N values.
+
+    Returns (has_bt, has_sa, has_ga).
+    """
+    has_bt = any(bool(results.get("BT", {}).get(N)) for N in N_values)
+    def _has_runs(sub: str) -> bool:
+        for N in N_values:
+            d = results.get(sub, {}).get(N, {})
+            if d.get("total_runs", 0) > 0 or len(d.get("raw_runs", [])) > 0:
+                return True
+        return False
+    has_sa = _has_runs("SA")
+    has_ga = _has_runs("GA")
+    return has_bt, has_sa, has_ga
+
+
 def save_results_to_csv(results: ExperimentResults, N_values: List[int], fitness_mode: str, out_dir: str) -> None:
     """Write compact per-N aggregate metrics for BT/SA/GA to CSV.
 
@@ -20,15 +37,37 @@ def save_results_to_csv(results: ExperimentResults, N_values: List[int], fitness
     - bt_* for Backtracking, sa_* for Simulated Annealing, ga_* for Genetic Algorithm.
     """
     os.makedirs(out_dir, exist_ok=True)
-    filename = os.path.join(out_dir, f"results_GA_{fitness_mode}_tuned.csv")
+    has_bt, has_sa, has_ga = _detect_presence(results, N_values)
+    if not has_ga:
+        if has_bt and has_sa:
+            filename = os.path.join(out_dir, "results_BT_SA.csv")
+        elif has_sa:
+            filename = os.path.join(out_dir, "results_SA.csv")
+        else:
+            filename = os.path.join(out_dir, "results_BT.csv")
+    else:
+        filename = os.path.join(out_dir, f"results_GA_{fitness_mode}_tuned.csv")
 
     with open(filename, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow([
             "n",
+            # Backtracking (per-solver and backward-compatible aggregate)
             "bt_solution_found",
             "bt_nodes_explored",
             "bt_time_seconds",
+            "bt_first_solution_found",
+            "bt_first_nodes_explored",
+            "bt_first_time_seconds",
+            "bt_mcv_solution_found",
+            "bt_mcv_nodes_explored",
+            "bt_mcv_time_seconds",
+            "bt_lcv_solution_found",
+            "bt_lcv_nodes_explored",
+            "bt_lcv_time_seconds",
+            "bt_mcv_hybrid_solution_found",
+            "bt_mcv_hybrid_nodes_explored",
+            "bt_mcv_hybrid_time_seconds",
             "sa_success_rate",
             "sa_timeout_rate",
             "sa_failure_rate",
@@ -72,6 +111,14 @@ def save_results_to_csv(results: ExperimentResults, N_values: List[int], fitness
 
         for N in N_values:
             bt = results["BT"][N]
+            # Support both legacy (single dict) and new per-solver dict
+            if isinstance(bt.get("solution_found") if isinstance(bt, dict) else None, bool):
+                bt_first = bt_mcv = bt_lcv = bt_h = bt  # type: ignore
+            else:
+                bt_first = bt.get("first", {"solution_found": False, "nodes": 0, "time": 0.0})
+                bt_mcv = bt.get("mcv", {"solution_found": False, "nodes": 0, "time": 0.0})
+                bt_lcv = bt.get("lcv", {"solution_found": False, "nodes": 0, "time": 0.0})
+                bt_h = bt.get("mcv_hybrid", {"solution_found": False, "nodes": 0, "time": 0.0})
             sa = results["SA"][N]
             ga = results["GA"][N]
 
@@ -89,9 +136,22 @@ def save_results_to_csv(results: ExperimentResults, N_values: List[int], fitness
 
             writer.writerow([
                 N,
-                int(bt["solution_found"]),
-                bt["nodes"],
-                bt["time"],
+                # Backward-compatible aggregate: use hybrid as canonical
+                int(bt_h["solution_found"]),
+                bt_h["nodes"],
+                bt_h["time"],
+                int(bt_first["solution_found"]),
+                bt_first["nodes"],
+                bt_first["time"],
+                int(bt_mcv["solution_found"]),
+                bt_mcv["nodes"],
+                bt_mcv["time"],
+                int(bt_lcv["solution_found"]),
+                bt_lcv["nodes"],
+                bt_lcv["time"],
+                int(bt_h["solution_found"]),
+                bt_h["nodes"],
+                bt_h["time"],
                 sa.get("success_rate", 0.0),
                 sa.get("timeout_rate", 0),
                 sa.get("failure_rate", 0),
@@ -136,96 +196,142 @@ def save_results_to_csv(results: ExperimentResults, N_values: List[int], fitness
     print(f"CSV saved: {filename}")
 
 
+def save_bt_solvers_summary(results: ExperimentResults, N_values: List[int], fitness_mode: str, out_dir: str) -> None:
+    """Write a long-format CSV with per-solver BT metrics for each N.
+
+    Columns:
+    - n: board size
+    - bt_solver: solver label (suffix of function name without 'bt_nqueens_')
+    - solution_found, nodes_explored, time_seconds
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    has_bt, has_sa, has_ga = _detect_presence(results, N_values)
+    if not has_ga:
+        filename = os.path.join(out_dir, "bt_solvers_summary.csv")
+    else:
+        filename = os.path.join(out_dir, f"bt_solvers_summary_{fitness_mode}.csv")
+
+    with open(filename, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["n", "bt_solver", "solution_found", "nodes_explored", "time_seconds"])
+        for N in N_values:
+            bt_entry = results["BT"][N]
+            # Legacy single-entry support: emit one row labelled 'mcv_hybrid'
+            if isinstance(bt_entry.get("solution_found") if isinstance(bt_entry, dict) else None, bool):
+                writer.writerow([N, "mcv_hybrid", bt_entry["solution_found"], bt_entry["nodes"], bt_entry["time"]])
+            else:
+                for label, row in bt_entry.items():
+                    writer.writerow([N, label, row.get("solution_found", False), row.get("nodes", 0), row.get("time", 0.0)])
+
+    print(f"BT solvers summary saved: {filename}")
+
+
 def save_raw_data_to_csv(results: ExperimentResults, N_values: List[int], fitness_mode: str, out_dir: str) -> None:
     """Write full per-run raw data for SA, GA, and BT to CSV files.
 
     Column names are standardized to lowercase snake_case.
     """
     os.makedirs(out_dir, exist_ok=True)
+    has_bt, has_sa, has_ga = _detect_presence(results, N_values)
 
-    sa_filename = os.path.join(out_dir, f"raw_data_SA_{fitness_mode}.csv")
-    with open(sa_filename, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            "n",
-            "run_id",
-            "algorithm",
-            "success",
-            "timeout",
-            "steps",
-            "time_seconds",
-            "evals",
-            "best_conflicts",
-        ])
-        for N in N_values:
-            sa_data = results["SA"][N]
-            if "raw_runs" in sa_data:
-                for i, run in enumerate(sa_data["raw_runs"]):
-                    writer.writerow([
-                        N,
-                        i + 1,
-                        "SA",
-                        run["success"],
-                        run["timeout"],
-                        run["steps"],
-                        run["time"],
-                        run["evals"],
-                        run["best_conflicts"],
-                    ])
+    sa_filename = None
+    if has_sa:
+        sa_filename = os.path.join(out_dir, (f"raw_data_SA_{fitness_mode}.csv" if has_ga else "raw_data_SA.csv"))
+        with open(sa_filename, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "n",
+                "run_id",
+                "algorithm",
+                "success",
+                "timeout",
+                "steps",
+                "time_seconds",
+                "evals",
+                "best_conflicts",
+            ])
+            for N in N_values:
+                sa_data = results["SA"][N]
+                if "raw_runs" in sa_data:
+                    for i, run in enumerate(sa_data["raw_runs"]):
+                        writer.writerow([
+                            N,
+                            i + 1,
+                            "SA",
+                            run["success"],
+                            run["timeout"],
+                            run["steps"],
+                            run["time"],
+                            run["evals"],
+                            run["best_conflicts"],
+                        ])
 
-    ga_filename = os.path.join(out_dir, f"raw_data_GA_{fitness_mode}.csv")
-    with open(ga_filename, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            "n",
-            "run_id",
-            "algorithm",
-            "success",
-            "timeout",
-            "gen",
-            "time_seconds",
-            "evals",
-            "best_fitness",
-            "best_conflicts",
-            "pop_size",
-            "max_gen",
-            "pm",
-            "pc",
-            "tournament_size",
-        ])
-        for N in N_values:
-            ga_data = results["GA"][N]
-            if "raw_runs" in ga_data:
-                for i, run in enumerate(ga_data["raw_runs"]):
-                    writer.writerow([
-                        N,
-                        i + 1,
-                        "GA",
-                        run["success"],
-                        run["timeout"],
-                        run["gen"],
-                        run["time"],
-                        run["evals"],
-                        run.get("best_fitness", ""),
-                        run.get("best_conflicts", ""),
-                        ga_data.get("pop_size", 0),
-                        ga_data.get("max_gen", 0),
-                        ga_data.get("pm", 0.0),
-                        ga_data.get("pc", 0.0),
-                        ga_data.get("tournament_size", 0),
-                    ])
+    ga_filename = None
+    if has_ga:
+        ga_filename = os.path.join(out_dir, f"raw_data_GA_{fitness_mode}.csv")
+        with open(ga_filename, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "n",
+                "run_id",
+                "algorithm",
+                "success",
+                "timeout",
+                "gen",
+                "time_seconds",
+                "evals",
+                "best_fitness",
+                "best_conflicts",
+                "pop_size",
+                "max_gen",
+                "pm",
+                "pc",
+                "tournament_size",
+            ])
+            for N in N_values:
+                ga_data = results["GA"][N]
+                if "raw_runs" in ga_data:
+                    for i, run in enumerate(ga_data["raw_runs"]):
+                        writer.writerow([
+                            N,
+                            i + 1,
+                            "GA",
+                            run["success"],
+                            run["timeout"],
+                            run["gen"],
+                            run["time"],
+                            run["evals"],
+                            run.get("best_fitness", ""),
+                            run.get("best_conflicts", ""),
+                            ga_data.get("pop_size", 0),
+                            ga_data.get("max_gen", 0),
+                            ga_data.get("pm", 0.0),
+                            ga_data.get("pc", 0.0),
+                            ga_data.get("tournament_size", 0),
+                        ])
 
-    bt_filename = os.path.join(out_dir, f"raw_data_BT_{fitness_mode}.csv")
+    bt_filename = os.path.join(out_dir, (f"raw_data_BT_{fitness_mode}.csv" if has_ga else "raw_data_BT.csv"))
     with open(bt_filename, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["n", "algorithm", "solution_found", "nodes_explored", "time_seconds"])
         for N in N_values:
             bt_data = results["BT"][N]
-            writer.writerow([N, "BT", bt_data["solution_found"], bt_data["nodes"], bt_data["time"]])
-
+            if isinstance(bt_data.get("solution_found") if isinstance(bt_data, dict) else None, bool):
+                rows = [("BT", bt_data)]
+            else:
+                rows = [
+                    ("BT_FIRST", bt_data.get("first", {"solution_found": False, "nodes": 0, "time": 0.0})),
+                    ("BT_MCV", bt_data.get("mcv", {"solution_found": False, "nodes": 0, "time": 0.0})),
+                    ("BT_LCV", bt_data.get("lcv", {"solution_found": False, "nodes": 0, "time": 0.0})),
+                    ("BT_MCV_HYBRID", bt_data.get("mcv_hybrid", {"solution_found": False, "nodes": 0, "time": 0.0})),
+                ]
+            for alg_label, row in rows:
+                writer.writerow([N, alg_label, row["solution_found"], row["nodes"], row["time"]])
     print("Raw data saved:")
-    print(f"  SA: {sa_filename}")
-    print(f"  GA: {ga_filename}")
+    if sa_filename:
+        print(f"  SA: {sa_filename}")
+    if ga_filename:
+        print(f"  GA: {ga_filename}")
     print(f"  BT: {bt_filename}")
 
 
@@ -235,7 +341,8 @@ def save_logical_cost_analysis(results: ExperimentResults, N_values: List[int], 
     Column names follow lowercase snake_case with bt_/sa_/ga_ prefixes.
     """
     os.makedirs(out_dir, exist_ok=True)
-    filename = os.path.join(out_dir, f"logical_costs_{fitness_mode}.csv")
+    has_bt, has_sa, has_ga = _detect_presence(results, N_values)
+    filename = os.path.join(out_dir, (f"logical_costs_{fitness_mode}.csv" if has_ga else "logical_costs.csv"))
 
     with open(filename, "w", newline="") as f:
         writer = csv.writer(f)
@@ -264,6 +371,10 @@ def save_logical_cost_analysis(results: ExperimentResults, N_values: List[int], 
 
         for N in N_values:
             bt = results["BT"][N]
+            if isinstance(bt.get("solution_found") if isinstance(bt, dict) else None, bool):
+                bt_h = bt
+            else:
+                bt_h = bt.get("mcv_hybrid", {"solution_found": False, "nodes": 0, "time": 0.0})
             sa = results["SA"][N]
             ga = results["GA"][N]
 
@@ -281,8 +392,8 @@ def save_logical_cost_analysis(results: ExperimentResults, N_values: List[int], 
 
             writer.writerow([
                 N,
-                int(bt["solution_found"]),
-                bt["nodes"],
+                int(bt_h["solution_found"]),
+                bt_h["nodes"],
                 sa.get("success_rate", 0.0),
                 sa_all_steps.get("mean", ""),
                 sa_all_steps.get("median", ""),
@@ -297,7 +408,7 @@ def save_logical_cost_analysis(results: ExperimentResults, N_values: List[int], 
                 ga_all_evals.get("median", ""),
                 ga_success_gen.get("mean", ""),
                 ga_success_evals.get("mean", ""),
-                bt["time"],
+                bt_h["time"],
                 sa_success_time.get("mean", ""),
                 ga_success_time.get("mean", ""),
             ])

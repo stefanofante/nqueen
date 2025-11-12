@@ -45,6 +45,7 @@ from .reporting import (
     save_raw_data_to_csv,
     save_results_to_csv,
 )
+from .reporting import save_bt_solvers_summary
 from .stats import ProgressPrinter
 from .tuning import (
     tune_all_fitness_parallel,
@@ -97,6 +98,22 @@ def parse_algorithm_filters(alg_args: Optional[List[str]]):
                 selected.append(token)
     unique = list(dict.fromkeys(selected))  # preserve order, remove dups
     return unique or None
+def parse_bt_solver_filters(bt_args: Optional[List[str]]):
+    """Parse BT solver filter list; returns lowercase labels or None.
+
+    Accepts repeated flags and comma-separated lists. Labels correspond to
+    function suffixes after 'bt_nqueens_': e.g., 'first', 'mcv', 'lcv', 'mcv_hybrid'.
+    """
+    if not bt_args:
+        return None
+    selected: List[str] = []
+    for entry in bt_args:
+        for token in entry.split(","):
+            token = token.strip().lower()
+            if token:
+                selected.append(token)
+    # preserve order, remove dups
+    return list(dict.fromkeys(selected)) or None
 
 
 def normalize_optimal_parameters(raw_params: Optional[Dict[Any, Any]]) -> Dict[Any, Any]:
@@ -204,6 +221,7 @@ def main_sequential(
     config_mgr: Optional[ConfigManager] = None,
     validate: bool = False,
     algorithms: Optional[List[str]] = None,
+    bt_solvers: Optional[List[str]] = None,
 ) -> None:
     """Run sequential GA tuning (optional) and final experiments per fitness.
 
@@ -219,7 +237,10 @@ def main_sequential(
 
     for fitness_mode in selected_fitness:
         print("\n============================================")
-        print(f"SEQUENTIAL PIPELINE FOR GA FITNESS {fitness_mode}")
+        if include_ga:
+            print(f"SEQUENTIAL PIPELINE FOR FITNESS {fitness_mode}")
+        else:
+            print("SEQUENTIAL PIPELINE")
         print("============================================")
 
         if not include_ga:
@@ -325,7 +346,21 @@ def main_sequential(
             if config_mgr:
                 config_mgr.save_optimal_parameters(fitness_mode, best_ga_params_for_N)
 
-        print(f"\nRunning final experiments for GA fitness {fitness_mode}")
+        if include_ga:
+            print(f"\nRunning final experiments for fitness {fitness_mode}")
+        else:
+            print("\nRunning final experiments")
+        alg_list = []
+        if include_bt:
+            alg_list.append("BT")
+        if include_sa:
+            alg_list.append("SA")
+        if include_ga:
+            alg_list.append("GA")
+        exp_label = (
+            f"Experiments GA-F{fitness_mode}" if include_ga else f"Experiments {'+'.join(alg_list) or 'NONE'}"
+        )
+
         results = run_experiments_with_best_ga(
             settings.N_VALUES,
             runs_sa=settings.RUNS_SA_FINAL,
@@ -333,16 +368,18 @@ def main_sequential(
             bt_time_limit=settings.BT_TIME_LIMIT,
             fitness_mode=fitness_mode,
             best_ga_params_for_N=best_ga_params_for_N,
-            progress_label=f"Experiments GA-{fitness_mode}",
+            progress_label=exp_label,
             validate=validate,
             include_bt=include_bt,
             include_sa=include_sa,
             include_ga=include_ga,
+            bt_solvers=bt_solvers,
         )
 
         save_results_to_csv(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
         save_raw_data_to_csv(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
         save_logical_cost_analysis(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
+        save_bt_solvers_summary(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
         plot_and_save(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
 
     print("\nSequential pipeline completed.")
@@ -356,6 +393,7 @@ def main_parallel(
     config_mgr: Optional[ConfigManager] = None,
     validate: bool = False,
     algorithms: Optional[List[str]] = None,
+    bt_solvers: Optional[List[str]] = None,
 ) -> None:
     """Run GA tuning and final experiments leveraging process-level parallelism."""
     os.makedirs(settings.OUT_DIR, exist_ok=True)
@@ -446,7 +484,7 @@ def main_parallel(
                     config_mgr.save_optimal_parameters(fitness_mode, best_ga_params_for_N)
     else:
         print("\n" + "=" * 60)
-        print("PHASE 1: PARALLEL GA TUNING")
+        print("PHASE 1: PARALLEL TUNING")
         print("=" * 60)
 
         for fitness_mode in selected_fitness:
@@ -513,8 +551,22 @@ def main_parallel(
     print("=" * 60)
 
     for fitness_mode in selected_fitness:
-        print(f"\nFinal experiments for {fitness_mode}...")
+        if include_ga:
+            print(f"\nFinal experiments for fitness {fitness_mode}...")
+        else:
+            print("\nFinal experiments...")
         experiments_start = perf_counter()
+
+        alg_list = []
+        if include_bt:
+            alg_list.append("BT")
+        if include_sa:
+            alg_list.append("SA")
+        if include_ga:
+            alg_list.append("GA")
+        exp_label = (
+            f"Experiments GA-F{fitness_mode}" if include_ga else f"Experiments {'+'.join(alg_list) or 'NONE'}"
+        )
 
         results = run_experiments_with_best_ga_parallel(
             settings.N_VALUES,
@@ -523,11 +575,12 @@ def main_parallel(
             bt_time_limit=settings.BT_TIME_LIMIT,
             fitness_mode=fitness_mode,
             best_ga_params_for_N=all_best_params[fitness_mode],
-            progress_label=f"Experiments GA-{fitness_mode}",
+            progress_label=exp_label,
             validate=validate,
             include_bt=include_bt,
             include_sa=include_sa,
             include_ga=include_ga,
+            bt_solvers=bt_solvers,
         )
 
         experiments_time = perf_counter() - experiments_start
@@ -537,13 +590,15 @@ def main_parallel(
         save_results_to_csv(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
         save_raw_data_to_csv(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
         save_logical_cost_analysis(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
+        save_bt_solvers_summary(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
         plot_and_save(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
         print(f"  Results saved for {fitness_mode}")
 
     total_time = perf_counter() - start_total
     print("\nParallel pipeline completed!")
     print(f"Total time: {total_time:.1f}s ({total_time/60:.1f} minutes)")
-    print(f"Fitness processed: {len(selected_fitness)}")
+    if include_ga:
+        print(f"Fitness processed: {len(selected_fitness)}")
     print(f"Worker processes used: {settings.NUM_PROCESSES}")
 
 
@@ -584,6 +639,7 @@ def main_concurrent_tuning(
     config_mgr: Optional[ConfigManager] = None,
     validate: bool = False,
     algorithms: Optional[List[str]] = None,
+    bt_solvers: Optional[List[str]] = None,
 ) -> None:
     """Tune GA parameters for all selected fitness functions concurrently.
 
@@ -593,8 +649,12 @@ def main_concurrent_tuning(
     os.makedirs(settings.OUT_DIR, exist_ok=True)
     selected_fitness = fitness_modes or settings.FITNESS_MODES
 
-    print("\nCONCURRENT TUNING FOR SELECTED FITNESS FUNCTIONS")
-    print(f"Fitness modes: {selected_fitness}")
+    include_ga_header = (algorithms is None) or ("GA" in algorithms)
+    if include_ga_header:
+        print("\nCONCURRENT TUNING FOR SELECTED FITNESS FUNCTIONS")
+        print(f"Fitness modes: {selected_fitness}")
+    else:
+        print("\nCONCURRENT PIPELINE")
     print(f"Processes: {settings.NUM_PROCESSES}")
     print(f"Available CPU cores: {os.cpu_count()}")
     print("Configured timeouts:")
@@ -647,9 +707,10 @@ def main_concurrent_tuning(
                 if config_mgr:
                     config_mgr.save_optimal_parameters(fitness_mode, best_ga_params_for_N)
     else:
-        print("\n" + "=" * 70)
-        print("PHASE 1: PARALLEL TUNING FOR ALL FITNESS FUNCTIONS")
-        print("=" * 70)
+        if include_ga_header:
+            print("\n" + "=" * 70)
+            print("PHASE 1: PARALLEL TUNING FOR ALL FITNESS FUNCTIONS")
+            print("=" * 70)
 
         progress = ProgressPrinter(len(settings.N_VALUES), "Concurrent GA tuning")
 
@@ -684,7 +745,21 @@ def main_concurrent_tuning(
     all_results: Dict[str, Any] = {}
 
     for fitness_mode in selected_fitness:
-        print(f"\nFinal experiments GA-{fitness_mode}")
+        if include_ga:
+            print(f"\nFinal experiments for fitness {fitness_mode}")
+        else:
+            print("\nFinal experiments")
+
+        alg_list = []
+        if include_bt:
+            alg_list.append("BT")
+        if include_sa:
+            alg_list.append("SA")
+        if include_ga:
+            alg_list.append("GA")
+        exp_label = (
+            f"Experiments GA-F{fitness_mode}" if include_ga else f"Experiments {'+'.join(alg_list) or 'NONE'}"
+        )
 
         results = run_experiments_with_best_ga_parallel(
             settings.N_VALUES,
@@ -693,11 +768,12 @@ def main_concurrent_tuning(
             bt_time_limit=settings.BT_TIME_LIMIT,
             fitness_mode=fitness_mode,
             best_ga_params_for_N=all_best_params[fitness_mode],
-            progress_label=f"Experiments GA-{fitness_mode}",
+            progress_label=exp_label,
             validate=validate,
             include_bt=include_bt,
             include_sa=include_sa,
             include_ga=include_ga,
+            bt_solvers=bt_solvers,
         )
 
         all_results[fitness_mode] = results
@@ -705,30 +781,33 @@ def main_concurrent_tuning(
         save_results_to_csv(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
         save_raw_data_to_csv(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
         save_logical_cost_analysis(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
+        save_bt_solvers_summary(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
         plot_and_save(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
 
-    print("\n" + "=" * 70)
-    print("PHASE 3: COMPARATIVE ANALYSIS AND ADVANCED CHARTS")
-    print("=" * 70)
+    if include_ga:
+        print("\n" + "=" * 70)
+        print("PHASE 3: COMPARATIVE ANALYSIS AND ADVANCED CHARTS")
+        print("=" * 70)
 
-    for fitness in selected_fitness:
-        print(f"  Comprehensive analysis for GA-F{fitness}...")
-        plot_comprehensive_analysis(
-            all_results[fitness], settings.N_VALUES, fitness, os.path.join(settings.OUT_DIR, f"analysis_F{fitness}"), raw_runs=None
+        for fitness in selected_fitness:
+            print(f"  Comprehensive analysis for GA-F{fitness}...")
+            plot_comprehensive_analysis(
+                all_results[fitness], settings.N_VALUES, fitness, os.path.join(settings.OUT_DIR, f"analysis_F{fitness}"), raw_runs=None
+            )
+
+        print("  Comparing fitness functions...")
+        plot_fitness_comparison(all_results, settings.N_VALUES, os.path.join(settings.OUT_DIR, "fitness_comparison"))
+
+        print("  Statistical analysis...")
+        plot_statistical_analysis(
+            all_results, settings.N_VALUES, os.path.join(settings.OUT_DIR, "statistical_analysis"), raw_runs=None
         )
-
-    print("  Comparing fitness functions...")
-    plot_fitness_comparison(all_results, settings.N_VALUES, os.path.join(settings.OUT_DIR, "fitness_comparison"))
-
-    print("  Statistical analysis...")
-    plot_statistical_analysis(
-        all_results, settings.N_VALUES, os.path.join(settings.OUT_DIR, "statistical_analysis"), raw_runs=None
-    )
 
     total_time = perf_counter() - start_total
     print("\nConcurrent pipeline completed!")
     print(f"Total time: {total_time:.1f}s ({total_time/60:.1f} minutes)")
-    print(f"Fitness processed: {len(selected_fitness)}")
+    if include_ga:
+        print(f"Fitness processed: {len(selected_fitness)}")
 
 
 # ------------- Quick regression -------------------------------------------
@@ -826,6 +905,12 @@ def build_arg_parser():
         action="append",
         help="Filter algorithms to execute: BT, SA, GA (comma-separated or multiple flags). Default: all.",
     )
+    parser.add_argument(
+        "--bt-solvers",
+        "-B",
+        action="append",
+        help="Filter Backtracking solvers by name suffix (e.g., first,mcv,lcv,mcv_hybrid). Default: all discovered.",
+    )
     tune_group = parser.add_mutually_exclusive_group()
     tune_group.add_argument("--tune", action="store_true", help="Run GA tuning before experiments (default is to reuse stored parameters).")
     parser.add_argument("--config", default="config.json", help="Path to configuration file (default: config.json).")
@@ -840,6 +925,11 @@ def main() -> None:
     args = parser.parse_args()
     fitness_filter = parse_fitness_filters(args.fitness)
     alg_filter = parse_algorithm_filters(args.alg)
+    bt_solver_filter = parse_bt_solver_filters(getattr(args, "bt_solvers", None))
+
+    # Disallow fitness filters when GA is not selected
+    if args.fitness and alg_filter is not None and "GA" not in alg_filter:
+        parser.error("Invalid option: -f is only valid for GA (use -a GA)")
 
     if args.quick_test:
         run_quick_regression_tests()
@@ -854,18 +944,20 @@ def main() -> None:
         print(f"Configuration error: {exc}")
         raise SystemExit(1) from exc
 
-    print(f"Selected fitness modes: {selected_fitness}")
+    include_ga_main = (alg_filter is None) or ("GA" in alg_filter)
+    if include_ga_main:
+        print(f"Selected fitness modes: {selected_fitness}")
 
     # Tuning policy: only on explicit request (--tune). Default: reuse parameters.
     skip_tuning_effective = not getattr(args, "tune", False)
 
     try:
         if args.mode == "sequential":
-            main_sequential(selected_fitness, skip_tuning=skip_tuning_effective, config_mgr=config_mgr, validate=args.validate, algorithms=alg_filter)
+            main_sequential(selected_fitness, skip_tuning=skip_tuning_effective, config_mgr=config_mgr, validate=args.validate, algorithms=alg_filter, bt_solvers=bt_solver_filter)
         elif args.mode == "parallel":
-            main_parallel(selected_fitness, skip_tuning=skip_tuning_effective, config_mgr=config_mgr, validate=args.validate, algorithms=alg_filter)
+            main_parallel(selected_fitness, skip_tuning=skip_tuning_effective, config_mgr=config_mgr, validate=args.validate, algorithms=alg_filter, bt_solvers=bt_solver_filter)
         else:
-            main_concurrent_tuning(selected_fitness, skip_tuning=skip_tuning_effective, config_mgr=config_mgr, validate=args.validate, algorithms=alg_filter)
+            main_concurrent_tuning(selected_fitness, skip_tuning=skip_tuning_effective, config_mgr=config_mgr, validate=args.validate, algorithms=alg_filter, bt_solvers=bt_solver_filter)
     except KeyboardInterrupt:
         print("\nExecution interrupted by user. Cleaning up workers...")
         raise SystemExit(130) from None

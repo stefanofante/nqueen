@@ -15,9 +15,9 @@
         "output_dir": "results_nqueens_tuning"
     },
     "timeout_settings": {
-        "bt_time_limit": 300.0,
-        "sa_time_limit": 120.0,
-        "ga_time_limit": 240.0,
+        "bt_time_limit": 120.0,
+        "sa_time_limit": 30.0,
+        "ga_time_limit": 60.0,
         "experiment_timeout": 120.0
     },
     "tuning_grid": {
