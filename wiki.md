@@ -7,11 +7,14 @@ This wiki provides comprehensive documentation for the N-Queens comparative algo
 Filter which algorithms run using `--alg` (`-a`). Valid values: `BT`, `SA`, `GA` (repeatable or comma-separated).
 
 ```bash
-# GA only (tuning + experiments) [default: parallel mode]
+# GA only (experiments only; tuning on-demand)
 python algoanalisys.py -a GA
 
-# GA only, skip tuning and reuse parameters from config.json
-python algoanalisys.py -a GA --skip-tuning --config config.json
+# GA only, run tuning first then experiments
+python algoanalisys.py -a GA --tune
+
+# GA only, riusando i parametri da config.json (default)
+python algoanalisys.py -a GA --config config.json
 
 # SA only (no GA, no BT)
 python algoanalisys.py --mode sequential -a SA
@@ -25,10 +28,10 @@ python algoanalisys.py -a SA,GA -f F1,F3
 
 Behavior notes:
 
-- If `GA` is included and `--skip-tuning` is NOT set, GA tuning runs first (according to `--mode`), then final experiments.
+- Tuning runs only when `--tune` is passed; default is to reuse stored parameters.
 - If `GA` is excluded (e.g., `-a SA` or `-a BT`), tuning is skipped automatically.
 - When tuning runs, optimal GA parameters are persisted to `config.json`.
-- With `--skip-tuning`, GA parameters are loaded from `config.json`; missing N raise an explicit error.
+- Without `--tune`, GA parameters are loaded from `config.json`. If parameters for the selected fitness/N are missing or empty, the CLI automatically performs tuning as a fallback and saves the results.
 
 ## Overview
 
@@ -63,7 +66,7 @@ Modular orchestration layer:
 - `nqueens/analysis/experiments.py`: experiment runners (BT/SA/GA) with optimal parameters
 - `nqueens/analysis/reporting.py`: CSV exports for aggregated/raw data and logical cost analysis
 - `nqueens/analysis/plots.py`: chart generation (optional, requires matplotlib)
-- `nqueens/analysis/cli.py`: pipelines, CLI wiring, quick regression runner, flags: `--mode`, `--fitness`, `--skip-tuning`, `--validate`
+- `nqueens/analysis/cli.py`: pipelines, CLI wiring, quick regression runner, flags: `--mode`, `--fitness`, `--validate`
 
 Compatibility facade:
 
@@ -916,7 +919,7 @@ Implemented as of v2.1.0:
 - Fitness filtering via `--fitness`
 - Configuration via `config.json` with persisted optimal parameters
 - Quick regression tests on N=8 (`--quick-test`)
-- Flag `--skip-tuning` to reuse stored parameters
+    (Il riuso dei parametri è il comportamento di default; usare `--tune` per eseguire tuning.)
 - Graceful shutdown on `Ctrl+C` and progress reporting
 - New `--validate` flag for solution/result consistency checks
 

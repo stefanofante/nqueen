@@ -22,6 +22,6 @@ Aggiornato il: 2025-11-12
 
 ## Promemoria d’uso
 
-- CLI: `python algoanalisys.py [--mode {sequential|parallel|concurrent}] [--fitness ...] [--skip-tuning] [--config config.json] [--validate]`
+- CLI: `python algoanalisys.py [--mode {sequential|parallel|concurrent}] [--fitness ...] [--config config.json] [--validate]`
 - Test rapidi: `python algoanalisys.py --quick-test`
 - API utility: `from nqueens import is_valid_solution, conflicts`

@@ -7,11 +7,14 @@ This project provides a comprehensive comparative analysis of three fundamental 
 Run only specific algorithms via the `--alg` (`-a`) filter. Accepted values: `BT`, `SA`, `GA` (repeatable or comma-separated). Examples:
 
 ```bash
-# GA only (tuning + experiments) [default: parallel mode]
+# GA only (experiments only; tuning on-demand)
 python algoanalisys.py -a GA
 
-# GA only, skip tuning and reuse parameters from config.json
-python algoanalisys.py -a GA --skip-tuning --config config.json
+# GA only, run tuning first then experiments
+python algoanalisys.py -a GA --tune
+
+# GA only, usando i parametri da config.json (default)
+python algoanalisys.py -a GA --config config.json
 
 # SA only (no GA, no BT)
 python algoanalisys.py --mode sequential -a SA
@@ -25,10 +28,10 @@ python algoanalisys.py -a SA,GA -f F1,F3
 
 Behavior notes:
 
-- If `GA` is included and `--skip-tuning` is NOT set, the pipeline performs GA tuning first (according to the selected `--mode`) and then runs final experiments.
-- If `GA` is excluded (e.g., `-a SA` or `-a BT`), tuning is automatically skipped.
+- Tuning runs only when you pass `--tune`; default behavior is to reuse stored parameters (i.e., skip tuning).
+- If `GA` is excluded (e.g., `-a SA` or `-a BT`), tuning is skipped regardless.
 - When tuning runs, optimal GA parameters are saved back to `config.json` (via `ConfigManager`).
-- With `--skip-tuning`, GA parameters are loaded from `config.json`; missing sizes cause an explicit error suggesting to run tuning first.
+- Without `--tune`, GA parameters are loaded from `config.json`. If parameters for the selected fitness/N are missing or empty, the CLI automatically performs tuning as a fallback and persists the results.
 
 All runtime messages and plot labels are in English.
 
@@ -316,7 +319,6 @@ CLI flags overview:
 
 - --mode {sequential|parallel|concurrent}
 - --fitness, -f: filter fitness functions
-- --skip-tuning: reuse parameters from config.json
 - --config: configuration file path (default: config.json)
 - --quick-test: run quick regression and exit
 - --validate: validate solutions and assert consistency (extra checks)

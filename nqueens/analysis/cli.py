@@ -190,7 +190,7 @@ def load_optimal_parameters(
 ) -> Dict[int, Dict[str, Any]]:
     """Load tuned GA parameters for a fitness label and verify coverage."""
     if config_mgr is None:
-        raise ValueError("Config manager is required when skip-tuning is enabled.")
+        raise ValueError("Config manager is required when tuning is skipped (default).")
     params = normalize_optimal_parameters(config_mgr.get_optimal_parameters(fitness_mode))
     ensure_parameters_for_all_n(params, n_values, fitness_mode)
     return params
@@ -226,7 +226,56 @@ def main_sequential(
             best_ga_params_for_N: Dict[int, Dict[str, Any]] = {}
         elif skip_tuning:
             print("Skipping GA tuning and reusing parameters from configuration.")
-            best_ga_params_for_N = load_optimal_parameters(fitness_mode, config_mgr, settings.N_VALUES)
+            try:
+                best_ga_params_for_N = load_optimal_parameters(fitness_mode, config_mgr, settings.N_VALUES)
+            except ValueError as exc:
+                print(f"  No optimal GA parameters available ({exc}). Auto-running tuning now...")
+                best_ga_params_for_N = {}
+                tuning_csv = os.path.join(settings.OUT_DIR, f"tuning_GA_{fitness_mode}_seq.csv")
+                progress = ProgressPrinter(len(settings.N_VALUES), f"Tuning GA-{fitness_mode}")
+
+                with open(tuning_csv, "w", newline="") as f:
+                    writer = csv.writer(f)
+                    writer.writerow([
+                        "N",
+                        "pop_size",
+                        "max_gen",
+                        "pm",
+                        "pc",
+                        "tournament_size",
+                        "success_rate_tuning",
+                        "avg_gen_success_tuning",
+                    ])
+
+                    for index, N in enumerate(settings.N_VALUES, start=1):
+                        progress.update(index, f"N={N}")
+                        print(f"Tuning GA: N = {N}, fitness = {fitness_mode}")
+                        best = tune_ga_for_N(
+                            N,
+                            fitness_mode,
+                            settings.POP_MULTIPLIERS,
+                            settings.GEN_MULTIPLIERS,
+                            settings.PM_VALUES,
+                            settings.PC_FIXED,
+                            settings.TOURNAMENT_SIZE_FIXED,
+                            runs_tuning=settings.RUNS_GA_TUNING,
+                        )
+                        best_ga_params_for_N[N] = best
+                        print("  Best parameters:", best)
+
+                        writer.writerow([
+                            N,
+                            best["pop_size"],
+                            best["max_gen"],
+                            best["pm"],
+                            best["pc"],
+                            best["tournament_size"],
+                            best["success_rate"],
+                            best["avg_gen_success"],
+                        ])
+
+                if config_mgr:
+                    config_mgr.save_optimal_parameters(fitness_mode, best_ga_params_for_N)
         else:
             print("Starting GA tuning (sequential search).")
             best_ga_params_for_N: Dict[int, Dict[str, Any]] = {}
@@ -334,9 +383,67 @@ def main_parallel(
     if skip_tuning or not include_ga:
         print("\nSkipping GA tuning phase and loading parameters from configuration.")
         for fitness_mode in selected_fitness:
-            all_best_params[fitness_mode] = (
-                load_optimal_parameters(fitness_mode, config_mgr, settings.N_VALUES) if include_ga else {}
-            )
+            if not include_ga:
+                all_best_params[fitness_mode] = {}
+                continue
+            try:
+                all_best_params[fitness_mode] = load_optimal_parameters(
+                    fitness_mode, config_mgr, settings.N_VALUES
+                )
+            except ValueError as exc:
+                print(f"  No optimal GA parameters for {fitness_mode} ({exc}). Auto-running parallel tuning...")
+                best_ga_params_for_N: Dict[int, Dict[str, Any]] = {}
+                tuning_csv = os.path.join(settings.OUT_DIR, f"tuning_GA_{fitness_mode}.csv")
+                progress = ProgressPrinter(len(settings.N_VALUES), f"Tuning GA-{fitness_mode}")
+
+                with open(tuning_csv, "w", newline="") as f:
+                    writer = csv.writer(f)
+                    writer.writerow([
+                        "N",
+                        "pop_size",
+                        "max_gen",
+                        "pm",
+                        "pc",
+                        "tournament_size",
+                        "success_rate_tuning",
+                        "avg_gen_success_tuning",
+                    ])
+
+                    for index, N in enumerate(settings.N_VALUES, start=1):
+                        progress.update(index, f"N={N}")
+                        tuning_start = perf_counter()
+
+                        best = tune_ga_for_N_parallel(
+                            N,
+                            fitness_mode,
+                            settings.POP_MULTIPLIERS,
+                            settings.GEN_MULTIPLIERS,
+                            settings.PM_VALUES,
+                            settings.PC_FIXED,
+                            settings.TOURNAMENT_SIZE_FIXED,
+                            runs_tuning=settings.RUNS_GA_TUNING,
+                        )
+
+                        tuning_time = perf_counter() - tuning_start
+                        best_ga_params_for_N[N] = best
+                        print(
+                            f"     Completed in {tuning_time:.1f}s - Success rate: {best['success_rate']:.3f}"
+                        )
+
+                        writer.writerow([
+                            N,
+                            best["pop_size"],
+                            best["max_gen"],
+                            best["pm"],
+                            best["pc"],
+                            best["tournament_size"],
+                            best["success_rate"],
+                            best["avg_gen_success"],
+                        ])
+
+                all_best_params[fitness_mode] = best_ga_params_for_N
+                if config_mgr:
+                    config_mgr.save_optimal_parameters(fitness_mode, best_ga_params_for_N)
     else:
         print("\n" + "=" * 60)
         print("PHASE 1: PARALLEL GA TUNING")
@@ -510,9 +617,35 @@ def main_concurrent_tuning(
     if skip_tuning or not include_ga:
         print("\nSkipping GA tuning phase and loading parameters from configuration.")
         for fitness_mode in selected_fitness:
-            all_best_params[fitness_mode] = (
-                load_optimal_parameters(fitness_mode, config_mgr, settings.N_VALUES) if include_ga else {}
-            )
+            if not include_ga:
+                all_best_params[fitness_mode] = {}
+                continue
+            try:
+                all_best_params[fitness_mode] = load_optimal_parameters(
+                    fitness_mode, config_mgr, settings.N_VALUES
+                )
+            except ValueError as exc:
+                print(f"  No optimal GA parameters for {fitness_mode} ({exc}). Auto-running parallel tuning...")
+                # Fallback: tune this single fitness across all N using parallel tuner
+                best_ga_params_for_N: Dict[int, Dict[str, Any]] = {}
+                progress = ProgressPrinter(len(settings.N_VALUES), f"Tuning GA-{fitness_mode}")
+                for index, N in enumerate(settings.N_VALUES, start=1):
+                    progress.update(index, f"N={N}")
+                    best = tune_ga_for_N_parallel(
+                        N,
+                        fitness_mode,
+                        settings.POP_MULTIPLIERS,
+                        settings.GEN_MULTIPLIERS,
+                        settings.PM_VALUES,
+                        settings.PC_FIXED,
+                        settings.TOURNAMENT_SIZE_FIXED,
+                        runs_tuning=settings.RUNS_GA_TUNING,
+                    )
+                    best_ga_params_for_N[N] = best
+                save_tuning_results(best_ga_params_for_N, fitness_mode, settings.OUT_DIR)
+                all_best_params[fitness_mode] = best_ga_params_for_N
+                if config_mgr:
+                    config_mgr.save_optimal_parameters(fitness_mode, best_ga_params_for_N)
     else:
         print("\n" + "=" * 70)
         print("PHASE 1: PARALLEL TUNING FOR ALL FITNESS FUNCTIONS")
@@ -693,7 +826,8 @@ def build_arg_parser():
         action="append",
         help="Filter algorithms to execute: BT, SA, GA (comma-separated or multiple flags). Default: all.",
     )
-    parser.add_argument("--skip-tuning", action="store_true", help="Reuse stored GA parameters from config.json instead of running tuning.")
+    tune_group = parser.add_mutually_exclusive_group()
+    tune_group.add_argument("--tune", action="store_true", help="Run GA tuning before experiments (default is to reuse stored parameters).")
     parser.add_argument("--config", default="config.json", help="Path to configuration file (default: config.json).")
     parser.add_argument("--quick-test", action="store_true", help="Run quick regression tests (N=8) and exit.")
     parser.add_argument("--validate", action="store_true", help="Validate solutions and run consistency checks on results (extra assertions).")
@@ -722,13 +856,16 @@ def main() -> None:
 
     print(f"Selected fitness modes: {selected_fitness}")
 
+    # Tuning policy: only on explicit request (--tune). Default: reuse parameters.
+    skip_tuning_effective = not getattr(args, "tune", False)
+
     try:
         if args.mode == "sequential":
-            main_sequential(selected_fitness, skip_tuning=args.skip_tuning, config_mgr=config_mgr, validate=args.validate, algorithms=alg_filter)
+            main_sequential(selected_fitness, skip_tuning=skip_tuning_effective, config_mgr=config_mgr, validate=args.validate, algorithms=alg_filter)
         elif args.mode == "parallel":
-            main_parallel(selected_fitness, skip_tuning=args.skip_tuning, config_mgr=config_mgr, validate=args.validate, algorithms=alg_filter)
+            main_parallel(selected_fitness, skip_tuning=skip_tuning_effective, config_mgr=config_mgr, validate=args.validate, algorithms=alg_filter)
         else:
-            main_concurrent_tuning(selected_fitness, skip_tuning=args.skip_tuning, config_mgr=config_mgr, validate=args.validate, algorithms=alg_filter)
+            main_concurrent_tuning(selected_fitness, skip_tuning=skip_tuning_effective, config_mgr=config_mgr, validate=args.validate, algorithms=alg_filter)
     except KeyboardInterrupt:
         print("\nExecution interrupted by user. Cleaning up workers...")
         raise SystemExit(130) from None
