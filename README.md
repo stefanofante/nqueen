@@ -289,6 +289,7 @@ CLI flags overview:
 - --skip-tuning: reuse parameters from config.json
 - --config: configuration file path (default: config.json)
 - --quick-test: run quick regression and exit
+- --validate: validate solutions and assert consistency (extra checks)
 
 ### Python API
 

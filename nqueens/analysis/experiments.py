@@ -18,6 +18,7 @@ from .stats import (
 from nqueens.backtracking import bt_nqueens_first
 from nqueens.simulated_annealing import sa_nqueens
 from nqueens.genetic import ga_nqueens
+from nqueens.utils import is_valid_solution
 
 
 # Reusable workers -----------------------------------------------------------
@@ -51,6 +52,7 @@ def run_experiments_with_best_ga(
     fitness_mode: str,
     best_ga_params_for_N: Dict[int, Dict[str, Any]],
     progress_label: Optional[str] = None,
+    validate: bool = False,
 ) -> ExperimentResults:
     results = cast(ExperimentResults, {"BT": {}, "SA": {}, "GA": {}})
     progress = ProgressPrinter(len(N_values), progress_label) if progress_label else None
@@ -61,6 +63,8 @@ def run_experiments_with_best_ga(
         print(f"=== (Final) N = {N}, GA fitness {fitness_mode} ===")
 
         sol, nodes, t = bt_nqueens_first(N, time_limit=bt_time_limit)
+        if validate and sol is not None and not is_valid_solution(sol):
+            raise AssertionError(f"Invalid BT solution produced for N={N}: {sol}")
         results["BT"][N] = {"solution_found": sol is not None, "nodes": nodes, "time": t}
 
         sa_runs: List[Dict[str, Any]] = []
@@ -79,6 +83,14 @@ def run_experiments_with_best_ga(
                     "timeout": timeout,
                 }
             )
+
+        if validate:
+            for idx, run in enumerate(sa_runs):
+                if run["success"]:
+                    if run["best_conflicts"] != 0 or run["timeout"]:
+                        raise AssertionError(
+                            f"SA validation failed for N={N}, run {idx}: success but best_conflicts={run['best_conflicts']}, timeout={run['timeout']}"
+                        )
 
         sa_stats = compute_grouped_statistics(sa_runs, "success")
         results["SA"][N] = {
@@ -138,6 +150,14 @@ def run_experiments_with_best_ga(
                 }
             )
 
+        if validate:
+            for idx, run in enumerate(ga_runs):
+                if run["success"]:
+                    if run["best_conflicts"] != 0 or run["timeout"]:
+                        raise AssertionError(
+                            f"GA validation failed for N={N}, run {idx}: success but best_conflicts={run['best_conflicts']}, timeout={run['timeout']}"
+                        )
+
         ga_stats = compute_grouped_statistics(ga_runs, "success")
         results["GA"][N] = {
             "success_rate": ga_stats["success_rate"],
@@ -184,6 +204,7 @@ def run_experiments_with_best_ga_parallel(
     fitness_mode: str,
     best_ga_params_for_N: Dict[int, Dict[str, Any]],
     progress_label: Optional[str] = None,
+    validate: bool = False,
 ) -> ExperimentResults:
     results = cast(ExperimentResults, {"BT": {}, "SA": {}, "GA": {}})
     progress = ProgressPrinter(len(N_values), progress_label) if progress_label else None
@@ -194,6 +215,8 @@ def run_experiments_with_best_ga_parallel(
         print(f"=== (Final Parallel) N = {N}, GA fitness {fitness_mode} ===")
 
         sol, nodes, t = bt_nqueens_first(N, time_limit=bt_time_limit)
+        if validate and sol is not None and not is_valid_solution(sol):
+            raise AssertionError(f"Invalid BT solution produced for N={N}: {sol}")
         results["BT"][N] = {"solution_found": sol is not None, "nodes": nodes, "time": t}
 
         print(f"  Running {runs_sa} SA runs in parallel...")
@@ -215,6 +238,14 @@ def run_experiments_with_best_ga_parallel(
                     "timeout": timeout,
                 }
             )
+
+        if validate:
+            for idx, run in enumerate(sa_runs):
+                if run["success"]:
+                    if run["best_conflicts"] != 0 or run["timeout"]:
+                        raise AssertionError(
+                            f"SA validation failed (parallel) for N={N}, run {idx}: success but best_conflicts={run['best_conflicts']}, timeout={run['timeout']}"
+                        )
 
         sa_stats = compute_grouped_statistics(sa_runs, "success")
         results["SA"][N] = {
@@ -269,6 +300,14 @@ def run_experiments_with_best_ga_parallel(
                     "timeout": timeout,
                 }
             )
+
+        if validate:
+            for idx, run in enumerate(ga_runs):
+                if run["success"]:
+                    if run["best_conflicts"] != 0 or run["timeout"]:
+                        raise AssertionError(
+                            f"GA validation failed (parallel) for N={N}, run {idx}: success but best_conflicts={run['best_conflicts']}, timeout={run['timeout']}"
+                        )
 
         ga_stats = compute_grouped_statistics(ga_runs, "success")
         results["GA"][N] = {

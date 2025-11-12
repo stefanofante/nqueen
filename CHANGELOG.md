@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.1.0] - 2025-11-12
 
-### Changed
+### Changed (2.1.0)
 
 - Modularized the orchestration layer into `nqueens/analysis/` with dedicated modules:
   - `settings`, `stats`, `tuning`, `experiments`, `reporting`, `plots`, `cli`
@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Made plotting imports optional with clear runtime stubs when `matplotlib` is not installed
 - Updated README to document the new modular architecture, Python API usage, and optional plotting dependency
 
-### Fixed
+### Fixed (2.1.0)
 
 - Ensured unit tests and the quick regression runner work without `matplotlib` installed
 
@@ -26,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING**: Complete internationalization - all code documentation, comments, and user interface converted to English
 - **BREAKING**: Restructured output to professional scientific format
 
-### Added
+### Added (2.0.0)
 
 - Comprehensive English documentation with technical depth
 - Professional README with detailed algorithm descriptions
@@ -42,7 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Parameter sensitivity analysis for genetic algorithm
 - Pareto efficiency analysis for fitness functions
 
-### Enhanced
+### Enhanced (2.0.0)
 
 - Statistical engine with advanced descriptive statistics
 - Parallel processing framework with intelligent resource management
@@ -68,20 +68,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.5.0] - 2025-11-10
 
-### Added
+### Added (1.5.0)
 
 - Advanced timeout system for all algorithms
 - Timeout statistics tracking (success/failure/timeout categorization)
 - Enhanced CSV exports with timeout data
 - Timeout rate analysis in visualization
 
-### Fixed
+### Fixed (1.5.0)
 
 - Critical bug in GA tuple unpacking during parallel execution
 - Missing timeout statistics in results dictionaries
 - Inconsistent timeout handling across algorithms
 
-### Enhanced
+### Enhanced (1.5.0)
 
 - Statistical analysis with separate timeout categorization
 - Performance measurement using perf_counter() for nanosecond precision
@@ -89,14 +89,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.4.0] - 2025-11-09
 
-### Added
+### Added (1.4.0)
 
 - Concurrent tuning mode for parallel fitness function optimization
 - Advanced statistical functions with detailed metrics
 - Enhanced data export with logical cost analysis
 - Improved visualization with professional charts
 
-### Enhanced
+### Enhanced (1.4.0)
 
 - Parallel processing architecture using ProcessPoolExecutor
 - Statistical analysis with confidence intervals
@@ -105,14 +105,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.3.0] - 2025-11-08
 
-### Added
+### Added (1.3.0)
 
 - Six genetic algorithm fitness functions (F1-F6)
 - Automated parameter tuning system
 - Comprehensive CSV data export
 - Basic visualization framework
 
-### Enhanced
+### Enhanced (1.3.0)
 
 - Algorithm implementations with timeout support
 - Statistical analysis capabilities
@@ -121,14 +121,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.2.0] - 2025-11-07
 
-### Added
+### Added (1.2.0)
 
 - Simulated Annealing algorithm implementation
 - Genetic Algorithm basic implementation
 - Parameter configuration system
 - Multiple independent run support
 
-### Enhanced
+### Enhanced (1.2.0)
 
 - Backtracking algorithm with iterative implementation
 - Performance measurement and timing
@@ -137,14 +137,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.1.0] - 2025-11-06
 
-### Added
+### Added (1.1.0)
 
 - Iterative Backtracking implementation
 - Basic N-Queens conflict detection
 - Solution validation system
 - Performance timing measurements
 
-### Enhanced
+### Enhanced (1.1.0)
 
 - Code structure and organization
 - Error handling
@@ -152,7 +152,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.0] - 2025-11-05
 
-### Added
+### Added (1.0.0)
 
 - Initial project structure
 - Basic N-Queens problem definition

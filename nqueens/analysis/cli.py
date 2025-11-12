@@ -152,6 +152,7 @@ def main_sequential(
     fitness_modes: Optional[List[str]] = None,
     skip_tuning: bool = False,
     config_mgr: Optional[ConfigManager] = None,
+    validate: bool = False,
 ) -> None:
     os.makedirs(settings.OUT_DIR, exist_ok=True)
     selected_fitness = fitness_modes or settings.FITNESS_MODES
@@ -222,6 +223,7 @@ def main_sequential(
             fitness_mode=fitness_mode,
             best_ga_params_for_N=best_ga_params_for_N,
             progress_label=f"Experiments GA-{fitness_mode}",
+            validate=validate,
         )
 
         save_results_to_csv(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
@@ -238,6 +240,7 @@ def main_parallel(
     fitness_modes: Optional[List[str]] = None,
     skip_tuning: bool = False,
     config_mgr: Optional[ConfigManager] = None,
+    validate: bool = False,
 ) -> None:
     os.makedirs(settings.OUT_DIR, exist_ok=True)
     selected_fitness = fitness_modes or settings.FITNESS_MODES
@@ -341,6 +344,7 @@ def main_parallel(
             fitness_mode=fitness_mode,
             best_ga_params_for_N=all_best_params[fitness_mode],
             progress_label=f"Experiments GA-{fitness_mode}",
+            validate=validate,
         )
 
         experiments_time = perf_counter() - experiments_start
@@ -395,6 +399,7 @@ def main_concurrent_tuning(
     fitness_modes: Optional[List[str]] = None,
     skip_tuning: bool = False,
     config_mgr: Optional[ConfigManager] = None,
+    validate: bool = False,
 ) -> None:
     os.makedirs(settings.OUT_DIR, exist_ok=True)
     selected_fitness = fitness_modes or settings.FITNESS_MODES
@@ -468,6 +473,7 @@ def main_concurrent_tuning(
             fitness_mode=fitness_mode,
             best_ga_params_for_N=all_best_params[fitness_mode],
             progress_label=f"Experiments GA-{fitness_mode}",
+            validate=validate,
         )
 
         all_results[fitness_mode] = results
@@ -584,6 +590,7 @@ def build_arg_parser():
     parser.add_argument("--skip-tuning", action="store_true", help="Reuse stored GA parameters from config.json instead of running tuning.")
     parser.add_argument("--config", default="config.json", help="Path to configuration file (default: config.json).")
     parser.add_argument("--quick-test", action="store_true", help="Run quick regression tests (N=8) and exit.")
+    parser.add_argument("--validate", action="store_true", help="Validate solutions and run consistency checks on results (extra assertions).")
     return parser
 
 
@@ -609,11 +616,11 @@ def main() -> None:
 
     try:
         if args.mode == "sequential":
-            main_sequential(selected_fitness, skip_tuning=args.skip_tuning, config_mgr=config_mgr)
+            main_sequential(selected_fitness, skip_tuning=args.skip_tuning, config_mgr=config_mgr, validate=args.validate)
         elif args.mode == "parallel":
-            main_parallel(selected_fitness, skip_tuning=args.skip_tuning, config_mgr=config_mgr)
+            main_parallel(selected_fitness, skip_tuning=args.skip_tuning, config_mgr=config_mgr, validate=args.validate)
         else:
-            main_concurrent_tuning(selected_fitness, skip_tuning=args.skip_tuning, config_mgr=config_mgr)
+            main_concurrent_tuning(selected_fitness, skip_tuning=args.skip_tuning, config_mgr=config_mgr, validate=args.validate)
     except KeyboardInterrupt:
         print("\nExecution interrupted by user. Cleaning up workers...")
         raise SystemExit(130) from None
