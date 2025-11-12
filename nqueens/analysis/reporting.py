@@ -14,56 +14,60 @@ from .stats import ExperimentResults
 
 
 def save_results_to_csv(results: ExperimentResults, N_values: List[int], fitness_mode: str, out_dir: str) -> None:
-    """Write compact per-N aggregate metrics for BT/SA/GA to CSV."""
+    """Write compact per-N aggregate metrics for BT/SA/GA to CSV.
+
+    Column names follow lowercase snake_case with subsystem prefixes:
+    - bt_* for Backtracking, sa_* for Simulated Annealing, ga_* for Genetic Algorithm.
+    """
     os.makedirs(out_dir, exist_ok=True)
     filename = os.path.join(out_dir, f"results_GA_{fitness_mode}_tuned.csv")
 
     with open(filename, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow([
-            "N",
-            "BT_solution_found",
-            "BT_nodes_explored",
-            "BT_time_seconds",
-            "SA_success_rate",
-            "SA_timeout_rate",
-            "SA_failure_rate",
-            "SA_total_runs",
-            "SA_successes",
-            "SA_failures",
-            "SA_timeouts",
-            "SA_success_steps_mean",
-            "SA_success_steps_median",
-            "SA_success_evals_mean",
-            "SA_success_evals_median",
-            "SA_timeout_steps_mean",
-            "SA_timeout_steps_median",
-            "SA_timeout_evals_mean",
-            "SA_timeout_evals_median",
-            "SA_success_time_mean",
-            "SA_success_time_median",
-            "GA_success_rate",
-            "GA_timeout_rate",
-            "GA_failure_rate",
-            "GA_total_runs",
-            "GA_successes",
-            "GA_failures",
-            "GA_timeouts",
-            "GA_success_gen_mean",
-            "GA_success_gen_median",
-            "GA_success_evals_mean",
-            "GA_success_evals_median",
-            "GA_timeout_gen_mean",
-            "GA_timeout_gen_median",
-            "GA_timeout_evals_mean",
-            "GA_timeout_evals_median",
-            "GA_success_time_mean",
-            "GA_success_time_median",
-            "GA_pop_size",
-            "GA_max_gen",
-            "GA_pm",
-            "GA_pc",
-            "GA_tournament_size",
+            "n",
+            "bt_solution_found",
+            "bt_nodes_explored",
+            "bt_time_seconds",
+            "sa_success_rate",
+            "sa_timeout_rate",
+            "sa_failure_rate",
+            "sa_total_runs",
+            "sa_successes",
+            "sa_failures",
+            "sa_timeouts",
+            "sa_success_steps_mean",
+            "sa_success_steps_median",
+            "sa_success_evals_mean",
+            "sa_success_evals_median",
+            "sa_timeout_steps_mean",
+            "sa_timeout_steps_median",
+            "sa_timeout_evals_mean",
+            "sa_timeout_evals_median",
+            "sa_success_time_mean",
+            "sa_success_time_median",
+            "ga_success_rate",
+            "ga_timeout_rate",
+            "ga_failure_rate",
+            "ga_total_runs",
+            "ga_successes",
+            "ga_failures",
+            "ga_timeouts",
+            "ga_success_gen_mean",
+            "ga_success_gen_median",
+            "ga_success_evals_mean",
+            "ga_success_evals_median",
+            "ga_timeout_gen_mean",
+            "ga_timeout_gen_median",
+            "ga_timeout_evals_mean",
+            "ga_timeout_evals_median",
+            "ga_success_time_mean",
+            "ga_success_time_median",
+            "ga_pop_size",
+            "ga_max_gen",
+            "ga_pm",
+            "ga_pc",
+            "ga_tournament_size",
         ])
 
         for N in N_values:
@@ -133,14 +137,17 @@ def save_results_to_csv(results: ExperimentResults, N_values: List[int], fitness
 
 
 def save_raw_data_to_csv(results: ExperimentResults, N_values: List[int], fitness_mode: str, out_dir: str) -> None:
-    """Write full per-run raw data for SA, GA, and BT to CSV files."""
+    """Write full per-run raw data for SA, GA, and BT to CSV files.
+
+    Column names are standardized to lowercase snake_case.
+    """
     os.makedirs(out_dir, exist_ok=True)
 
     sa_filename = os.path.join(out_dir, f"raw_data_SA_{fitness_mode}.csv")
     with open(sa_filename, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow([
-            "N",
+            "n",
             "run_id",
             "algorithm",
             "success",
@@ -170,7 +177,7 @@ def save_raw_data_to_csv(results: ExperimentResults, N_values: List[int], fitnes
     with open(ga_filename, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow([
-            "N",
+            "n",
             "run_id",
             "algorithm",
             "success",
@@ -211,7 +218,7 @@ def save_raw_data_to_csv(results: ExperimentResults, N_values: List[int], fitnes
     bt_filename = os.path.join(out_dir, f"raw_data_BT_{fitness_mode}.csv")
     with open(bt_filename, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["N", "algorithm", "solution_found", "nodes_explored", "time_seconds"])
+        writer.writerow(["n", "algorithm", "solution_found", "nodes_explored", "time_seconds"])
         for N in N_values:
             bt_data = results["BT"][N]
             writer.writerow([N, "BT", bt_data["solution_found"], bt_data["nodes"], bt_data["time"]])
@@ -223,33 +230,36 @@ def save_raw_data_to_csv(results: ExperimentResults, N_values: List[int], fitnes
 
 
 def save_logical_cost_analysis(results: ExperimentResults, N_values: List[int], fitness_mode: str, out_dir: str) -> None:
-    """Write a CSV focused on hardware-independent 'logical cost' metrics."""
+    """Write a CSV focused on hardware-independent 'logical cost' metrics.
+
+    Column names follow lowercase snake_case with bt_/sa_/ga_ prefixes.
+    """
     os.makedirs(out_dir, exist_ok=True)
     filename = os.path.join(out_dir, f"logical_costs_{fitness_mode}.csv")
 
     with open(filename, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow([
-            "N",
-            "BT_solution_found",
-            "BT_nodes_explored",
-            "SA_success_rate",
-            "SA_steps_mean_all",
-            "SA_steps_median_all",
-            "SA_evals_mean_all",
-            "SA_evals_median_all",
-            "SA_steps_mean_success",
-            "SA_evals_mean_success",
-            "GA_success_rate",
-            "GA_gen_mean_all",
-            "GA_gen_median_all",
-            "GA_evals_mean_all",
-            "GA_evals_median_all",
-            "GA_gen_mean_success",
-            "GA_evals_mean_success",
-            "BT_time_seconds",
-            "SA_time_mean_success",
-            "GA_time_mean_success",
+            "n",
+            "bt_solution_found",
+            "bt_nodes_explored",
+            "sa_success_rate",
+            "sa_steps_mean_all",
+            "sa_steps_median_all",
+            "sa_evals_mean_all",
+            "sa_evals_median_all",
+            "sa_steps_mean_success",
+            "sa_evals_mean_success",
+            "ga_success_rate",
+            "ga_gen_mean_all",
+            "ga_gen_median_all",
+            "ga_evals_mean_all",
+            "ga_evals_median_all",
+            "ga_gen_mean_success",
+            "ga_evals_mean_success",
+            "bt_time_seconds",
+            "sa_time_mean_success",
+            "ga_time_mean_success",
         ])
 
         for N in N_values:

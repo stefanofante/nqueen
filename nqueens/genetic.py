@@ -79,8 +79,9 @@ def ga_nqueens(
     -----
     - Representation: ``board[col] = row``. Multiple queens may share rows;
       the fitness discourages conflicts and directs the search.
-    - Evaluations count includes both fitness evaluations and direct conflict
-      checks used to track the best individual for reporting.
+        - Evaluations count includes fitness evaluations only; additional
+            conflict checks used to track/report the best individual are not
+            included in this counter.
     - If a perfect (0-conflict) solution is found, the run terminates early.
     """
     fitness_function = get_fitness_function(fitness_mode)

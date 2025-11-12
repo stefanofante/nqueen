@@ -180,7 +180,7 @@ def _run_as_script() -> None:
     Delega al `main()` definito in `nqueens.analysis.cli` che gestisce
     l'argument parsing e l'orchestrazione delle pipeline.
     """
-    # `main` è già importato dalla sezione CLI qui sopra
+    # `main` is imported from the CLI section above
     main()
 
 

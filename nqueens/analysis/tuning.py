@@ -159,7 +159,7 @@ def tune_ga_for_N_parallel(
 ) -> Dict[str, Any]:
     """Parallel version of GA tuning for a single ``(N, fitness_mode)`` pair."""
     print(
-        f"  Preparazione {len(pop_multipliers) * len(gen_multipliers) * len(pm_values)} combinazioni di parametri..."
+        f"  Preparing {len(pop_multipliers) * len(gen_multipliers) * len(pm_values)} parameter combinations..."
     )
 
     param_combinations: List[Tuple[int, str, int, int, float, float, int, int]] = []
@@ -172,7 +172,7 @@ def tune_ga_for_N_parallel(
                     (N, fitness_mode, pop_size, max_gen, pc, pm, tournament_size, runs_tuning)
                 )
 
-    print(f"  Esecuzione parallela con {NUM_PROCESSES} processi...")
+    print(f"  Executing in parallel with {NUM_PROCESSES} processes...")
     with ProcessPoolExecutor(max_workers=NUM_PROCESSES) as executor:
         candidates = list(executor.map(test_parameter_combination_parallel, param_combinations))
 
@@ -191,7 +191,7 @@ def tune_ga_for_N_parallel(
     if best is None:
         raise RuntimeError("No GA parameter candidate evaluated in parallel; check tuning grid.")
     print(
-        f"  Migliore combinazione: pop_size={best['pop_size']}, max_gen={best['max_gen']}, pm={best['pm']}, success_rate={best['success_rate']:.3f}"
+        f"  Best combination: pop_size={best['pop_size']}, max_gen={best['max_gen']}, pm={best['pm']}, success_rate={best['success_rate']:.3f}"
     )
     return best
 
@@ -220,7 +220,7 @@ def tune_all_fitness_parallel(
     runs_tuning: int = 10,
 ) -> Dict[str, Dict[str, Any]]:
     """Tune GA parameters for all fitness functions concurrently for a given N."""
-    print(f"Tuning contemporaneo di {len(fitness_modes)} fitness per N={N}")
+    print(f"Concurrent tuning of {len(fitness_modes)} fitness functions for N={N}")
 
     tuning_params = [
         (N, fitness_mode, pop_multipliers, gen_multipliers, pm_values, pc, tournament_size, runs_tuning)
@@ -228,7 +228,7 @@ def tune_all_fitness_parallel(
     ]
 
     print(
-        f"  Utilizzando {min(NUM_PROCESSES, len(fitness_modes))} processi per {len(fitness_modes)} fitness..."
+        f"  Using {min(NUM_PROCESSES, len(fitness_modes))} processes for {len(fitness_modes)} fitness functions..."
     )
     start_time = perf_counter()
 
@@ -241,8 +241,8 @@ def tune_all_fitness_parallel(
     for fitness_mode, best_params in results:
         best_params_per_fitness[fitness_mode] = best_params
         print(
-            f"  Completato {fitness_mode}: success_rate={best_params['success_rate']:.3f}, pop_size={best_params['pop_size']}, pm={best_params['pm']}"
+            f"  Completed {fitness_mode}: success_rate={best_params['success_rate']:.3f}, pop_size={best_params['pop_size']}, pm={best_params['pm']}"
         )
 
-    print(f"Tuning contemporaneo completato in {elapsed_time:.1f}s per N={N}")
+    print(f"Concurrent tuning completed in {elapsed_time:.1f}s for N={N}")
     return best_params_per_fitness

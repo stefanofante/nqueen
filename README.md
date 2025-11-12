@@ -2,6 +2,36 @@
 
 This project provides a comprehensive comparative analysis of three fundamental algorithms for solving the N-Queens problem: **Backtracking**, **Simulated Annealing**, and **Genetic Algorithm**. The framework includes advanced statistical analysis, automated parameter tuning, and extensive visualization capabilities. The solver implementations live inside the `nqueens/` package. The orchestration, tuning, reporting, and plots have been modularized under `nqueens/analysis/`, while `algoanalisys.py` now acts as a thin backwards-compatible facade re-exporting the public APIs.
 
+## Quick Usage
+
+Run only specific algorithms via the `--alg` (`-a`) filter. Accepted values: `BT`, `SA`, `GA` (repeatable or comma-separated). Examples:
+
+```bash
+# GA only (tuning + experiments) [default: parallel mode]
+python algoanalisys.py -a GA
+
+# GA only, skip tuning and reuse parameters from config.json
+python algoanalisys.py -a GA --skip-tuning --config config.json
+
+# SA only (no GA, no BT)
+python algoanalisys.py --mode sequential -a SA
+
+# BT only
+python algoanalisys.py -a BT
+
+# SA + GA for selected fitness functions
+python algoanalisys.py -a SA,GA -f F1,F3
+```
+
+Behavior notes:
+
+- If `GA` is included and `--skip-tuning` is NOT set, the pipeline performs GA tuning first (according to the selected `--mode`) and then runs final experiments.
+- If `GA` is excluded (e.g., `-a SA` or `-a BT`), tuning is automatically skipped.
+- When tuning runs, optimal GA parameters are saved back to `config.json` (via `ConfigManager`).
+- With `--skip-tuning`, GA parameters are loaded from `config.json`; missing sizes cause an explicit error suggesting to run tuning first.
+
+All runtime messages and plot labels are in English.
+
 ## Overview
 
 The N-Queens problem consists of placing N queens on an N x N chessboard such that no two queens can attack each other. Two queens attack each other if they are in the same row, column, or diagonal.
@@ -266,14 +296,14 @@ Note: Plotting is optional at runtime. If `matplotlib` is not installed, the CLI
 ### Quick Start
 
 ```bash
-# Run complete analysis (concurrent tuning mode - default)
+# Run complete analysis (parallel mode - default)
 python algoanalisys.py
 
 # Sequential pipeline
 python algoanalisys.py --mode sequential
 
-# Classic parallel pipeline
-python algoanalisys.py --mode parallel
+# Concurrent pipeline (across fitness functions)
+python algoanalisys.py --mode concurrent
 
 # Run quick smoke test (N=8) and exit
 python algoanalisys.py --quick-test
@@ -290,6 +320,8 @@ CLI flags overview:
 - --config: configuration file path (default: config.json)
 - --quick-test: run quick regression and exit
 - --validate: validate solutions and assert consistency (extra checks)
+
+Note: All runtime messages and plot labels are in English.
 
 ### Python API
 
@@ -368,6 +400,59 @@ results_nqueens_tuning/
 ├── tuning_GA_F2.csv             # GA F2 parameter tuning data
 └── ...                          # F3-F6 tuning data
 ```
+
+### CSV Schema
+
+The CSV exports use lowercase snake_case column names. Aggregated metrics use subsystem prefixes: `bt_` (Backtracking), `sa_` (Simulated Annealing), `ga_` (Genetic Algorithm). Time fields are in seconds.
+
+#### Aggregated Results (`results_GA_<FITNESS>_tuned.csv`)
+
+```text
+n,
+bt_solution_found, bt_nodes_explored, bt_time_seconds,
+sa_success_rate, sa_timeout_rate, sa_failure_rate, sa_total_runs, sa_successes, sa_failures, sa_timeouts,
+sa_success_steps_mean, sa_success_steps_median, sa_success_evals_mean, sa_success_evals_median,
+sa_timeout_steps_mean, sa_timeout_steps_median, sa_timeout_evals_mean, sa_timeout_evals_median,
+sa_success_time_mean, sa_success_time_median,
+ga_success_rate, ga_timeout_rate, ga_failure_rate, ga_total_runs, ga_successes, ga_failures, ga_timeouts,
+ga_success_gen_mean, ga_success_gen_median, ga_success_evals_mean, ga_success_evals_median,
+ga_timeout_gen_mean, ga_timeout_gen_median, ga_timeout_evals_mean, ga_timeout_evals_median,
+ga_success_time_mean, ga_success_time_median,
+ga_pop_size, ga_max_gen, ga_pm, ga_pc, ga_tournament_size
+```
+
+#### Raw Data — Simulated Annealing (`raw_data_SA_<FITNESS>.csv`)
+
+```text
+n, run_id, algorithm, success, timeout, steps, time_seconds, evals, best_conflicts
+```
+
+#### Raw Data — Genetic Algorithm (`raw_data_GA_<FITNESS>.csv`)
+
+```text
+n, run_id, algorithm, success, timeout, gen, time_seconds, evals, best_fitness, best_conflicts,
+pop_size, max_gen, pm, pc, tournament_size
+```
+
+#### Raw Data — Backtracking (`raw_data_BT_<FITNESS>.csv`)
+
+```text
+n, algorithm, solution_found, nodes_explored, time_seconds
+```
+
+#### Logical Cost Analysis (`logical_costs_<FITNESS>.csv`)
+
+```text
+n,
+bt_solution_found, bt_nodes_explored,
+sa_success_rate, sa_steps_mean_all, sa_steps_median_all, sa_evals_mean_all, sa_evals_median_all,
+sa_steps_mean_success, sa_evals_mean_success,
+ga_success_rate, ga_gen_mean_all, ga_gen_median_all, ga_evals_mean_all, ga_evals_median_all,
+ga_gen_mean_success, ga_evals_mean_success,
+bt_time_seconds, sa_time_mean_success, ga_time_mean_success
+```
+
+Backward compatibility: if you were consuming previous CSVs with different headers, update your schemas to the names above.
 
 #### Visualization Output
 

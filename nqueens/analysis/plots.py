@@ -67,7 +67,7 @@ def plot_comprehensive_analysis(
     plt.semilogy(N_values, bt_time_plot, marker="o", linewidth=2, markersize=8, label="Backtracking")
     plt.semilogy(N_values, sa_time_plot, marker="s", linewidth=2, markersize=8, label="Simulated Annealing")
     plt.semilogy(N_values, ga_time_plot, marker="^", linewidth=2, markersize=8, label=f"Genetic Algorithm (F{fitness_mode})")
-    plt.xlabel("N (Dimensione scacchiera)", fontsize=12)
+    plt.xlabel("N (board size)", fontsize=12)
     plt.ylabel("Average time [s] (log scale)", fontsize=12)
     plt.title("Execution Time vs Problem Size\n(Successful runs only — highlights BT growth)", fontsize=14)
     plt.legend(fontsize=11)
@@ -143,9 +143,9 @@ def plot_comprehensive_analysis(
     ]
 
     plt.figure(figsize=(12, 8))
-    plt.plot(N_values, sa_fail_quality, marker="s", linewidth=2, markersize=8, label="SA: Conflitti medi (fallimenti)")
-    plt.plot(N_values, ga_fail_quality, marker="^", linewidth=2, markersize=8, label=f"GA-F{fitness_mode}: Conflitti medi (fallimenti)")
-    plt.plot(N_values, [0] * len(N_values), "k--", alpha=0.5, label="Soluzione ottima (0 conflitti)")
+    plt.plot(N_values, sa_fail_quality, marker="s", linewidth=2, markersize=8, label="SA: Average conflicts (failures)")
+    plt.plot(N_values, ga_fail_quality, marker="^", linewidth=2, markersize=8, label=f"GA-F{fitness_mode}: Average conflicts (failures)")
+    plt.plot(N_values, [0] * len(N_values), "k--", alpha=0.5, label="Optimal solution (0 conflicts)")
     plt.xlabel("N (board size)", fontsize=12)
     plt.ylabel("Average conflicts in failures", fontsize=12)
     plt.title("Solution Quality in Failed Runs\n(How close to optimal despite failure)", fontsize=14)
@@ -164,7 +164,7 @@ def plot_comprehensive_analysis(
         if valid_sa:
             steps_valid, time_valid, n_valid = zip(*valid_sa)
             plt.scatter(steps_valid, time_valid, c=n_valid, cmap="viridis", s=100, alpha=0.8)
-            plt.colorbar(label="N (dimensione)")
+            plt.colorbar(label="N (size)")
             if len(valid_sa) > 2:
                 z = np.polyfit(steps_valid, time_valid, 1)
                 p = np.poly1d(z)
@@ -172,10 +172,10 @@ def plot_comprehensive_analysis(
                 plt.plot(x_trend, p(x_trend), "r--", alpha=0.8, label=f"Trend: y={z[0]:.2e}x+{z[1]:.2e}")
                 plt.legend()
 
-        plt.xlabel("Iterazioni SA (costo logico)", fontsize=12)
-        plt.ylabel("Tempo [s] (costo pratico)", fontsize=12)
+        plt.xlabel("SA iterations (logical cost)", fontsize=12)
+        plt.ylabel("Time [s] (practical cost)", fontsize=12)
         plt.title(
-            "Simulated Annealing: Correlazione Costo Teorico vs Pratico\n(Linearità conferma dominio del costo di valutazione)",
+            "Simulated Annealing: Theoretical vs Practical Cost Correlation\n(Linearity confirms evaluation-cost dominance)",
             fontsize=14,
         )
         plt.grid(True, alpha=0.7)
@@ -191,7 +191,7 @@ def plot_comprehensive_analysis(
         if valid_ga:
             evals_valid, time_valid, n_valid = zip(*valid_ga)
             plt.scatter(evals_valid, time_valid, c=n_valid, cmap="plasma", s=100, alpha=0.8)
-            plt.colorbar(label="N (dimensione)")
+            plt.colorbar(label="N (size)")
             if len(valid_ga) > 2:
                 z = np.polyfit(evals_valid, time_valid, 1)
                 p = np.poly1d(z)
@@ -199,10 +199,10 @@ def plot_comprehensive_analysis(
                 plt.plot(x_trend, p(x_trend), "r--", alpha=0.8, label=f"Trend: y={z[0]:.2e}x+{z[1]:.2e}")
                 plt.legend()
 
-        plt.xlabel("Valutazioni Fitness GA (costo logico)", fontsize=12)
-        plt.ylabel("Tempo [s] (costo pratico)", fontsize=12)
+        plt.xlabel("GA fitness evaluations (logical cost)", fontsize=12)
+        plt.ylabel("Time [s] (practical cost)", fontsize=12)
         plt.title(
-            f"GA-F{fitness_mode}: Correlazione Costo Teorico vs Pratico\n(Linearità conferma dominio del costo di valutazione)",
+            f"GA-F{fitness_mode}: Theoretical vs Practical Cost Correlation\n(Linearity confirms evaluation-cost dominance)",
             fontsize=14,
         )
         plt.grid(True, alpha=0.7)
@@ -218,7 +218,7 @@ def plot_comprehensive_analysis(
         if valid_bt:
             nodes_valid, time_valid, n_valid = zip(*valid_bt)
             plt.scatter(nodes_valid, time_valid, c=n_valid, cmap="coolwarm", s=100, alpha=0.8)
-            plt.colorbar(label="N (dimensione)")
+            plt.colorbar(label="N (size)")
             if len(valid_bt) > 2:
                 z = np.polyfit(nodes_valid, time_valid, 1)
                 p = np.poly1d(z)
@@ -226,9 +226,9 @@ def plot_comprehensive_analysis(
                 plt.plot(x_trend, p(x_trend), "r--", alpha=0.8, label=f"Trend: y={z[0]:.2e}x+{z[1]:.2e}")
                 plt.legend()
 
-        plt.xlabel("Nodi Esplorati BT (costo logico)", fontsize=12)
-        plt.ylabel("Tempo [s] (costo pratico)", fontsize=12)
-        plt.title("Backtracking: Correlazione Costo Teorico vs Pratico\n(Ogni nodo costa tempo quasi costante)", fontsize=14)
+        plt.xlabel("BT explored nodes (logical cost)", fontsize=12)
+        plt.ylabel("Time [s] (practical cost)", fontsize=12)
+        plt.title("Backtracking: Theoretical vs Practical Cost Correlation\n(Each node has near-constant evaluation time)", fontsize=14)
         plt.grid(True, alpha=0.7)
 
         fname = os.path.join(out_dir, f"09_BT_theoretical_vs_practical_F{fitness_mode}.png")
@@ -363,7 +363,7 @@ def plot_statistical_analysis(
     os.makedirs(out_dir, exist_ok=True)
 
     if not raw_runs:
-        print("Raw runs non disponibili per analisi statistica dettagliata")
+        print("Raw runs not available for detailed statistical analysis")
         return
 
     analysis_N = [n for n in [16, 24, 40] if n in N_values and n in raw_runs]
@@ -372,7 +372,7 @@ def plot_statistical_analysis(
         if N not in raw_runs:
             continue
 
-        print(f"Analisi statistica per N={N}...")
+        print(f"Statistical analysis for N={N}...")
 
         import matplotlib.pyplot as plt  # local import to avoid heavy import if unused
 
@@ -400,9 +400,9 @@ def plot_statistical_analysis(
                 patch.set_facecolor(color)
                 patch.set_alpha(0.7)
 
-            plt.ylabel("Tempo di Esecuzione [s]", fontsize=12)
+            plt.ylabel("Execution time [s]", fontsize=12)
             plt.title(
-                f"Distribuzione Tempi di Esecuzione (N={N}, solo successi)\n(Boxplot mostra mediana, quartili, outliers)",
+                f"Execution Time Distribution (N={N}, successes only)\n(Boxplot shows median, quartiles, outliers)",
                 fontsize=14,
             )
             plt.yscale("log")
@@ -412,7 +412,7 @@ def plot_statistical_analysis(
             fname = os.path.join(out_dir, f"boxplot_times_N{N}.png")
             plt.savefig(fname, bbox_inches="tight", dpi=300)
             plt.close()
-            print(f"Boxplot tempi N={N}: {fname}")
+            print(f"Time boxplot N={N}: {fname}")
 
         plt.figure(figsize=(14, 8))
         iter_data = []
@@ -438,9 +438,9 @@ def plot_statistical_analysis(
                 patch.set_facecolor(color)
                 patch.set_alpha(0.7)
 
-            plt.ylabel("Iterazioni/Generazioni", fontsize=12)
+            plt.ylabel("Iterations/Generations", fontsize=12)
             plt.title(
-                f"Distribuzione Costi Logici (N={N}, solo successi)\n(Variabilità dell'algoritmo in termini di sforzo)",
+                f"Logical Cost Distribution (N={N}, successes only)\n(Algorithm variability in terms of effort)",
                 fontsize=14,
             )
             plt.grid(True, alpha=0.3)
@@ -449,30 +449,30 @@ def plot_statistical_analysis(
             fname = os.path.join(out_dir, f"boxplot_iterations_N{N}.png")
             plt.savefig(fname, bbox_inches="tight", dpi=300)
             plt.close()
-            print(f"Boxplot iterazioni N={N}: {fname}")
+            print(f"Iterations boxplot N={N}: {fname}")
 
         if "SA" in raw_runs[N]:
             sa_times = [run["time"] for run in raw_runs[N]["SA"] if run["success"]]
             if len(sa_times) > 5:
                 plt.figure(figsize=(12, 6))
                 plt.hist(sa_times, bins=min(20, len(sa_times) // 2), alpha=0.7, color="orange", edgecolor="black")
-                plt.xlabel("Tempo [s]", fontsize=12)
-                plt.ylabel("Frequenza", fontsize=12)
+                plt.xlabel("Time [s]", fontsize=12)
+                plt.ylabel("Frequency", fontsize=12)
                 plt.title(
-                    f"Distribuzione Tempi SA (N={N})\n(Forma della distribuzione indica stabilità algoritmo)",
+                    f"SA Time Distribution (N={N})\n(Distribution shape indicates algorithm stability)",
                     fontsize=14,
                 )
                 plt.grid(True, alpha=0.3)
                 mean_time = np.mean(sa_times)
                 std_time = np.std(sa_times)
-                plt.axvline(mean_time, color="red", linestyle="--", label=f"Media: {mean_time:.3f}s")
+                plt.axvline(mean_time, color="red", linestyle="--", label=f"Mean: {mean_time:.3f}s")
                 plt.axvline(mean_time + std_time, color="red", linestyle=":", alpha=0.7, label=f"+/-1 sigma: {std_time:.3f}s")
                 plt.axvline(mean_time - std_time, color="red", linestyle=":", alpha=0.7)
                 plt.legend()
                 fname = os.path.join(out_dir, f"histogram_SA_times_N{N}.png")
                 plt.savefig(fname, bbox_inches="tight", dpi=300)
                 plt.close()
-                print(f"Istogramma SA tempi N={N}: {fname}")
+                print(f"SA time histogram N={N}: {fname}")
 
         best_fitness = min(all_results.keys(), key=lambda f: -all_results[f]["GA"][N]["success_rate"])
         if best_fitness in raw_runs[N]:
@@ -480,25 +480,25 @@ def plot_statistical_analysis(
             if len(ga_times) > 5:
                 plt.figure(figsize=(12, 6))
                 plt.hist(ga_times, bins=min(20, len(ga_times) // 2), alpha=0.7, color="green", edgecolor="black")
-                plt.xlabel("Tempo [s]", fontsize=12)
-                plt.ylabel("Frequenza", fontsize=12)
+                plt.xlabel("Time [s]", fontsize=12)
+                plt.ylabel("Frequency", fontsize=12)
                 plt.title(
-                    f"Distribuzione Tempi GA-F{best_fitness} (N={N})\n(Algoritmo più stabile = distribuzione stretta)",
+                    f"GA-F{best_fitness} Time Distribution (N={N})\n(More stable algorithm = tighter distribution)",
                     fontsize=14,
                 )
                 plt.grid(True, alpha=0.3)
                 mean_time = np.mean(ga_times)
                 std_time = np.std(ga_times)
-                plt.axvline(mean_time, color="red", linestyle="--", label=f"Media: {mean_time:.3f}s")
+                plt.axvline(mean_time, color="red", linestyle="--", label=f"Mean: {mean_time:.3f}s")
                 plt.axvline(mean_time + std_time, color="red", linestyle=":", alpha=0.7, label=f"+/-1 sigma: {std_time:.3f}s")
                 plt.axvline(mean_time - std_time, color="red", linestyle=":", alpha=0.7)
                 plt.legend()
                 fname = os.path.join(out_dir, f"histogram_GA_F{best_fitness}_times_N{N}.png")
                 plt.savefig(fname, bbox_inches="tight", dpi=300)
                 plt.close()
-                print(f"Istogramma GA-F{best_fitness} tempi N={N}: {fname}")
+                print(f"GA-F{best_fitness} time histogram N={N}: {fname}")
 
-    print("Analisi statistica completata")
+    print("Statistical analysis completed")
 
 
 def plot_and_save(results: ExperimentResults, N_values: List[int], fitness_mode: str, out_dir: str) -> None:

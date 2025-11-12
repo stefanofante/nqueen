@@ -78,6 +78,27 @@ def parse_fitness_filters(fitness_args: Optional[List[str]]):
     return selected or None
 
 
+def parse_algorithm_filters(alg_args: Optional[List[str]]):
+    """Normalize algorithm filter CLI inputs into a set of labels.
+
+    Accepts repeated flags and comma-separated lists. Valid values: BT, SA, GA.
+    Returns None when no filter is provided (meaning all are enabled).
+    """
+    if not alg_args:
+        return None
+    selected: List[str] = []
+    valid = {"BT", "SA", "GA"}
+    for entry in alg_args:
+        for token in entry.split(","):
+            token = token.strip().upper()
+            if token:
+                if token not in valid:
+                    raise ValueError(f"Unknown algorithm '{token}'. Allowed: BT, SA, GA")
+                selected.append(token)
+    unique = list(dict.fromkeys(selected))  # preserve order, remove dups
+    return unique or None
+
+
 def normalize_optimal_parameters(raw_params: Optional[Dict[Any, Any]]) -> Dict[Any, Any]:
     """Normalize keys of persisted GA parameters to integer N values.
 
@@ -182,6 +203,7 @@ def main_sequential(
     skip_tuning: bool = False,
     config_mgr: Optional[ConfigManager] = None,
     validate: bool = False,
+    algorithms: Optional[List[str]] = None,
 ) -> None:
     """Run sequential GA tuning (optional) and final experiments per fitness.
 
@@ -191,12 +213,18 @@ def main_sequential(
     os.makedirs(settings.OUT_DIR, exist_ok=True)
     selected_fitness = fitness_modes or settings.FITNESS_MODES
 
+    include_bt = (algorithms is None) or ("BT" in algorithms)
+    include_sa = (algorithms is None) or ("SA" in algorithms)
+    include_ga = (algorithms is None) or ("GA" in algorithms)
+
     for fitness_mode in selected_fitness:
         print("\n============================================")
         print(f"SEQUENTIAL PIPELINE FOR GA FITNESS {fitness_mode}")
         print("============================================")
 
-        if skip_tuning:
+        if not include_ga:
+            best_ga_params_for_N: Dict[int, Dict[str, Any]] = {}
+        elif skip_tuning:
             print("Skipping GA tuning and reusing parameters from configuration.")
             best_ga_params_for_N = load_optimal_parameters(fitness_mode, config_mgr, settings.N_VALUES)
         else:
@@ -258,6 +286,9 @@ def main_sequential(
             best_ga_params_for_N=best_ga_params_for_N,
             progress_label=f"Experiments GA-{fitness_mode}",
             validate=validate,
+            include_bt=include_bt,
+            include_sa=include_sa,
+            include_ga=include_ga,
         )
 
         save_results_to_csv(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
@@ -275,6 +306,7 @@ def main_parallel(
     skip_tuning: bool = False,
     config_mgr: Optional[ConfigManager] = None,
     validate: bool = False,
+    algorithms: Optional[List[str]] = None,
 ) -> None:
     """Run GA tuning and final experiments leveraging process-level parallelism."""
     os.makedirs(settings.OUT_DIR, exist_ok=True)
@@ -295,10 +327,16 @@ def main_parallel(
     start_total = perf_counter()
     all_best_params: Dict[str, Dict[int, Dict[str, Any]]] = {}
 
-    if skip_tuning:
+    include_bt = (algorithms is None) or ("BT" in algorithms)
+    include_sa = (algorithms is None) or ("SA" in algorithms)
+    include_ga = (algorithms is None) or ("GA" in algorithms)
+
+    if skip_tuning or not include_ga:
         print("\nSkipping GA tuning phase and loading parameters from configuration.")
         for fitness_mode in selected_fitness:
-            all_best_params[fitness_mode] = load_optimal_parameters(fitness_mode, config_mgr, settings.N_VALUES)
+            all_best_params[fitness_mode] = (
+                load_optimal_parameters(fitness_mode, config_mgr, settings.N_VALUES) if include_ga else {}
+            )
     else:
         print("\n" + "=" * 60)
         print("PHASE 1: PARALLEL GA TUNING")
@@ -380,6 +418,9 @@ def main_parallel(
             best_ga_params_for_N=all_best_params[fitness_mode],
             progress_label=f"Experiments GA-{fitness_mode}",
             validate=validate,
+            include_bt=include_bt,
+            include_sa=include_sa,
+            include_ga=include_ga,
         )
 
         experiments_time = perf_counter() - experiments_start
@@ -427,7 +468,7 @@ def save_tuning_results(best_params_for_N: Dict[int, Dict[str, Any]], fitness_mo
                 params.get("success_rate", ""),
                 params.get("avg_gen_success", ""),
             ])
-    print(f"Risultati tuning GA-F{fitness_mode} salvati: {filename}")
+            print(f"Saved GA-F{fitness_mode} tuning results: {filename}")
 
 
 def main_concurrent_tuning(
@@ -435,6 +476,7 @@ def main_concurrent_tuning(
     skip_tuning: bool = False,
     config_mgr: Optional[ConfigManager] = None,
     validate: bool = False,
+    algorithms: Optional[List[str]] = None,
 ) -> None:
     """Tune GA parameters for all selected fitness functions concurrently.
 
@@ -461,10 +503,16 @@ def main_concurrent_tuning(
     start_total = perf_counter()
     all_best_params: Dict[str, Dict[int, Dict[str, Any]]] = {fitness_mode: {} for fitness_mode in selected_fitness}
 
-    if skip_tuning:
+    include_bt = (algorithms is None) or ("BT" in algorithms)
+    include_sa = (algorithms is None) or ("SA" in algorithms)
+    include_ga = (algorithms is None) or ("GA" in algorithms)
+
+    if skip_tuning or not include_ga:
         print("\nSkipping GA tuning phase and loading parameters from configuration.")
         for fitness_mode in selected_fitness:
-            all_best_params[fitness_mode] = load_optimal_parameters(fitness_mode, config_mgr, settings.N_VALUES)
+            all_best_params[fitness_mode] = (
+                load_optimal_parameters(fitness_mode, config_mgr, settings.N_VALUES) if include_ga else {}
+            )
     else:
         print("\n" + "=" * 70)
         print("PHASE 1: PARALLEL TUNING FOR ALL FITNESS FUNCTIONS")
@@ -514,6 +562,9 @@ def main_concurrent_tuning(
             best_ga_params_for_N=all_best_params[fitness_mode],
             progress_label=f"Experiments GA-{fitness_mode}",
             validate=validate,
+            include_bt=include_bt,
+            include_sa=include_sa,
+            include_ga=include_ga,
         )
 
         all_results[fitness_mode] = results
@@ -627,14 +678,20 @@ def build_arg_parser():
     parser.add_argument(
         "--mode",
         choices=["sequential", "parallel", "concurrent"],
-        default="concurrent",
-        help="Execution mode: sequential tuning, parallel tuning, or concurrent tuning (default).",
+        default="parallel",
+        help="Execution mode: sequential tuning, parallel tuning (default), or concurrent tuning.",
     )
     parser.add_argument(
         "--fitness",
         "-f",
         action="append",
         help="Filter fitness modes (accepts comma-separated values or multiple flags).",
+    )
+    parser.add_argument(
+        "--alg",
+        "-a",
+        action="append",
+        help="Filter algorithms to execute: BT, SA, GA (comma-separated or multiple flags). Default: all.",
     )
     parser.add_argument("--skip-tuning", action="store_true", help="Reuse stored GA parameters from config.json instead of running tuning.")
     parser.add_argument("--config", default="config.json", help="Path to configuration file (default: config.json).")
@@ -648,6 +705,7 @@ def main() -> None:
     parser = build_arg_parser()
     args = parser.parse_args()
     fitness_filter = parse_fitness_filters(args.fitness)
+    alg_filter = parse_algorithm_filters(args.alg)
 
     if args.quick_test:
         run_quick_regression_tests()
@@ -666,11 +724,11 @@ def main() -> None:
 
     try:
         if args.mode == "sequential":
-            main_sequential(selected_fitness, skip_tuning=args.skip_tuning, config_mgr=config_mgr, validate=args.validate)
+            main_sequential(selected_fitness, skip_tuning=args.skip_tuning, config_mgr=config_mgr, validate=args.validate, algorithms=alg_filter)
         elif args.mode == "parallel":
-            main_parallel(selected_fitness, skip_tuning=args.skip_tuning, config_mgr=config_mgr, validate=args.validate)
+            main_parallel(selected_fitness, skip_tuning=args.skip_tuning, config_mgr=config_mgr, validate=args.validate, algorithms=alg_filter)
         else:
-            main_concurrent_tuning(selected_fitness, skip_tuning=args.skip_tuning, config_mgr=config_mgr, validate=args.validate)
+            main_concurrent_tuning(selected_fitness, skip_tuning=args.skip_tuning, config_mgr=config_mgr, validate=args.validate, algorithms=alg_filter)
     except KeyboardInterrupt:
         print("\nExecution interrupted by user. Cleaning up workers...")
         raise SystemExit(130) from None
