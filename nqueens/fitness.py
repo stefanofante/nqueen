@@ -1,0 +1,108 @@
+"""Fitness functions for the Genetic Algorithm variants.
+
+The module centralises all GA fitness formulations to make them easy to
+reuse and tune across experiments.
+"""
+
+from __future__ import annotations
+
+import math
+from collections import Counter
+from typing import Callable, Sequence
+
+from .utils import conflicts
+
+
+def fitness_f1(board: Sequence[int]) -> float:
+    """Return the classic ``-conflicts`` fitness."""
+    return -conflicts(board)
+
+
+def fitness_f2(board: Sequence[int]) -> float:
+    """Return the count of non-conflicting queen pairs."""
+    n = len(board)
+    max_pairs = n * (n - 1) // 2
+    return max_pairs - conflicts(board)
+
+
+def fitness_f3(board: Sequence[int]) -> float:
+    """Apply a linear penalty to diagonal clusters."""
+    diag1: Counter[int] = Counter()
+    diag2: Counter[int] = Counter()
+    for column, row in enumerate(board):
+        diag1[row - column] += 1
+        diag2[row + column] += 1
+
+    penalty = 0
+    for count in diag1.values():
+        if count > 1:
+            penalty += count * (count - 1) // 2
+    for count in diag2.values():
+        if count > 1:
+            penalty += count * (count - 1) // 2
+
+    n = len(board)
+    max_pairs = n * (n - 1) // 2
+    return max_pairs - penalty
+
+
+def fitness_f4(board: Sequence[int]) -> float:
+    """Penalise the queen with the largest number of conflicts."""
+    n = len(board)
+    max_pairs = n * (n - 1) // 2
+    total_conflicts = conflicts(board)
+    base_fitness = max_pairs - total_conflicts
+
+    worst_queen_conflicts = 0
+    for column in range(n):
+        queen_conflicts = 0
+        for other_column in range(n):
+            if other_column == column:
+                continue
+            if board[other_column] == board[column] or abs(board[other_column] - board[column]) == abs(other_column - column):
+                queen_conflicts += 1
+        worst_queen_conflicts = max(worst_queen_conflicts, queen_conflicts)
+
+    return base_fitness - worst_queen_conflicts
+
+
+def fitness_f5(board: Sequence[int]) -> float:
+    """Apply a quadratic penalty to diagonal clusters."""
+    diag1: Counter[int] = Counter()
+    diag2: Counter[int] = Counter()
+    for column, row in enumerate(board):
+        diag1[row - column] += 1
+        diag2[row + column] += 1
+
+    penalty = 0
+    for count in diag1.values():
+        if count > 1:
+            penalty += count ** 2
+    for count in diag2.values():
+        if count > 1:
+            penalty += count ** 2
+
+    n = len(board)
+    max_pairs = n * (n - 1) // 2
+    return max_pairs - penalty
+
+
+def fitness_f6(board: Sequence[int], lam: float = 0.3) -> float:
+    """Return the exponential fitness ``exp(-lambda * conflicts)``."""
+    return math.exp(-lam * conflicts(board))
+
+
+def get_fitness_function(mode: str) -> Callable[[Sequence[int]], float]:
+    """Factory that returns the fitness function associated with *mode*."""
+    mapping = {
+        "F1": fitness_f1,
+        "F2": fitness_f2,
+        "F3": fitness_f3,
+        "F4": fitness_f4,
+        "F5": fitness_f5,
+        "F6": lambda board: fitness_f6(board, lam=0.3),
+    }
+    try:
+        return mapping[mode]
+    except KeyError as exc:  # pragma: no cover - defensive programming
+        raise ValueError(f"Unknown fitness mode: {mode}") from exc

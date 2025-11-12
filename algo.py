@@ -160,11 +160,11 @@ def set_timeouts(bt_timeout=None, sa_timeout=30.0, ga_timeout=60.0, experiment_t
     GA_TIME_LIMIT = ga_timeout
     EXPERIMENT_TIMEOUT = experiment_timeout
     
-    print(f"Timeout settings configured:")
-    print(f"   • BT: {BT_TIME_LIMIT}s" if BT_TIME_LIMIT else "   • BT: illimitato")
-    print(f"   • SA: {SA_TIME_LIMIT}s" if SA_TIME_LIMIT else "   • SA: illimitato")
-    print(f"   • GA: {GA_TIME_LIMIT}s" if GA_TIME_LIMIT else "   • GA: illimitato")
-    print(f"   • Esperimento: {EXPERIMENT_TIMEOUT}s" if EXPERIMENT_TIMEOUT else "   • Esperimento: illimitato")
+    print("Timeout settings configured:")
+    print(f"   - BT: {BT_TIME_LIMIT}s" if BT_TIME_LIMIT else "   - BT: illimitato")
+    print(f"   - SA: {SA_TIME_LIMIT}s" if SA_TIME_LIMIT else "   - SA: illimitato")
+    print(f"   - GA: {GA_TIME_LIMIT}s" if GA_TIME_LIMIT else "   - GA: illimitato")
+    print(f"   - Esperimento: {EXPERIMENT_TIMEOUT}s" if EXPERIMENT_TIMEOUT else "   - Esperimento: illimitato")
 
 # Directory di output per CSV e grafici
 OUT_DIR = "results_nqueens_tuning"
@@ -420,7 +420,7 @@ def bt_nqueens_first(N, time_limit=None):
     - Time limit opzionale per evitare esecuzioni infinite
     
     Args:
-        N: dimensione scacchiera (N×N)
+    N: dimensione scacchiera (N x N)
         time_limit: limite tempo in secondi (None = illimitato)
         
     Returns:
@@ -1804,7 +1804,7 @@ def plot_comprehensive_analysis(results, N_values, fitness_mode, out_dir, raw_ru
     fname = os.path.join(out_dir, f"01_success_rate_vs_N_F{fitness_mode}.png")
     plt.savefig(fname, bbox_inches="tight", dpi=300)
     plt.close()
-    print(f"✓ Grafico tasso successo salvato: {fname}")
+    print(f"Saved success-rate chart: {fname}")
     
     # 1.2 Tempo medio vs N (scala logaritmica, solo successi)
     bt_time = [results["BT"][N]["time"] if results["BT"][N]["solution_found"] else 0 for N in N_values]
@@ -1830,7 +1830,7 @@ def plot_comprehensive_analysis(results, N_values, fitness_mode, out_dir, raw_ru
     fname = os.path.join(out_dir, f"02_time_vs_N_log_scale_F{fitness_mode}.png")
     plt.savefig(fname, bbox_inches="tight", dpi=300)
     plt.close()
-    print(f"✓ Grafico tempo (log scale) salvato: {fname}")
+    print(f"Saved execution-time chart (log scale): {fname}")
     
     # 1.3 Costo logico vs N (indipendente dalla macchina)
     bt_nodes = [results["BT"][N]["nodes"] for N in N_values]
@@ -1851,7 +1851,7 @@ def plot_comprehensive_analysis(results, N_values, fitness_mode, out_dir, raw_ru
     fname = os.path.join(out_dir, f"03_logical_cost_vs_N_F{fitness_mode}.png")
     plt.savefig(fname, bbox_inches="tight", dpi=300)
     plt.close()
-    print(f"✓ Grafico costo logico salvato: {fname}")
+    print(f"Saved logical-cost chart: {fname}")
     
     # 1.4 Valutazioni di fitness vs N (SA vs GA)
     sa_evals = [results["SA"][N]["success_evals"].get("mean", 0.0) if results["SA"][N]["success_evals"] else 0.0 for N in N_values]
@@ -1870,7 +1870,7 @@ def plot_comprehensive_analysis(results, N_values, fitness_mode, out_dir, raw_ru
     fname = os.path.join(out_dir, f"04_fitness_evaluations_vs_N_F{fitness_mode}.png")
     plt.savefig(fname, bbox_inches="tight", dpi=300)
     plt.close()
-    print(f"✓ Grafico valutazioni fitness salvato: {fname}")
+    print(f"Saved fitness-evaluation chart: {fname}")
     
     # ===========================================
     # 2. ANALISI TIMEOUT E FALLIMENTI
@@ -1891,7 +1891,7 @@ def plot_comprehensive_analysis(results, N_values, fitness_mode, out_dir, raw_ru
     fname = os.path.join(out_dir, f"05_timeout_rate_vs_N_F{fitness_mode}.png")
     plt.savefig(fname, bbox_inches="tight", dpi=300)
     plt.close()
-    print(f"✓ Grafico timeout rate salvato: {fname}")
+    print(f"Saved timeout-rate chart: {fname}")
     
     # 2.2 Qualità nei fallimenti (best_conflicts nei run falliti)
     sa_fail_quality = [results["SA"][N]["failure_best_conflicts"].get("mean", N) if results["SA"][N].get("failure_best_conflicts") else N for N in N_values]
@@ -1911,7 +1911,7 @@ def plot_comprehensive_analysis(results, N_values, fitness_mode, out_dir, raw_ru
     fname = os.path.join(out_dir, f"06_failure_quality_vs_N_F{fitness_mode}.png")
     plt.savefig(fname, bbox_inches="tight", dpi=300)
     plt.close()
-    print(f"✓ Grafico qualità fallimenti salvato: {fname}")
+    print(f"Saved failure-quality chart: {fname}")
     
     # ===========================================
     # 3. CONFRONTO TEORICO VS PRATICO
@@ -1943,7 +1943,7 @@ def plot_comprehensive_analysis(results, N_values, fitness_mode, out_dir, raw_ru
         fname = os.path.join(out_dir, f"07_SA_theoretical_vs_practical_F{fitness_mode}.png")
         plt.savefig(fname, bbox_inches="tight", dpi=300)
         plt.close()
-        print(f"✓ Grafico SA teorico vs pratico salvato: {fname}")
+    print(f"Saved SA theoretical-vs-practical chart: {fname}")
     
     # 3.2 Tempo vs Valutazioni fitness (GA)
     if any(ga_evals) and any(ga_time):
@@ -1970,7 +1970,7 @@ def plot_comprehensive_analysis(results, N_values, fitness_mode, out_dir, raw_ru
         fname = os.path.join(out_dir, f"08_GA_theoretical_vs_practical_F{fitness_mode}.png")
         plt.savefig(fname, bbox_inches="tight", dpi=300)
         plt.close()
-        print(f"✓ Grafico GA teorico vs pratico salvato: {fname}")
+    print(f"Saved GA theoretical-vs-practical chart: {fname}")
     
     # 3.3 Tempo vs Nodi BT (conferma linearità)
     if any(bt_nodes) and any(bt_time):
@@ -1997,7 +1997,7 @@ def plot_comprehensive_analysis(results, N_values, fitness_mode, out_dir, raw_ru
         fname = os.path.join(out_dir, f"09_BT_theoretical_vs_practical_F{fitness_mode}.png")
         plt.savefig(fname, bbox_inches="tight", dpi=300)
         plt.close()
-        print(f"✓ Grafico BT teorico vs pratico salvato: {fname}")
+        print(f"Saved BT theoretical-vs-practical chart: {fname}")
     
     print(f"\nComplete analysis generated in: {out_dir}")
     print(f"Generated {9} base charts for fitness F{fitness_mode}")
@@ -2041,7 +2041,7 @@ def plot_fitness_comparison(all_results, N_values, out_dir, raw_runs=None):
         fname = os.path.join(out_dir, f"fitness_success_rate_N{N}.png")
         plt.savefig(fname, bbox_inches="tight", dpi=300)
         plt.close()
-        print(f"✓ Confronto success rate N={N} salvato: {fname}")
+        print(f"Saved success-rate comparison for N={N}: {fname}")
         
         # ===========================================
         # 2. GENERAZIONI MEDIE PER FITNESS
@@ -2060,7 +2060,7 @@ def plot_fitness_comparison(all_results, N_values, out_dir, raw_runs=None):
                       color=[fitness_colors[f] for f in fitness_modes], 
                       alpha=0.8, capsize=5)
         plt.xlabel("Fitness Function", fontsize=12)
-        plt.ylabel("Generazioni Medie ± Std", fontsize=12)
+        plt.ylabel("Generazioni Medie +/- Std", fontsize=12)
         plt.title(f"Confronto Velocità di Convergenza (N={N})\n(Generazioni necessarie per trovare soluzione)", fontsize=14)
         plt.grid(True, alpha=0.3, axis='y')
         
@@ -2068,12 +2068,12 @@ def plot_fitness_comparison(all_results, N_values, out_dir, raw_runs=None):
         for bar, mean, std in zip(bars, gen_means, gen_stds):
             if mean > 0:
                 plt.text(bar.get_x() + bar.get_width()/2, bar.get_height() + std + 0.5,
-                        f'{mean:.1f}±{std:.1f}', ha='center', va='bottom', fontsize=10)
+                        f'{mean:.1f}+/-{std:.1f}', ha='center', va='bottom', fontsize=10)
         
         fname = os.path.join(out_dir, f"fitness_generations_N{N}.png")
         plt.savefig(fname, bbox_inches="tight", dpi=300)
         plt.close()
-        print(f"✓ Confronto generazioni N={N} salvato: {fname}")
+        print(f"Saved generation comparison for N={N}: {fname}")
         
         # ===========================================
         # 3. TEMPO MEDIO PER FITNESS
@@ -2092,7 +2092,7 @@ def plot_fitness_comparison(all_results, N_values, out_dir, raw_runs=None):
                       color=[fitness_colors[f] for f in fitness_modes], 
                       alpha=0.8, capsize=5)
         plt.xlabel("Fitness Function", fontsize=12)
-        plt.ylabel("Tempo Medio [s] ± Std", fontsize=12)
+        plt.ylabel("Tempo Medio [s] +/- Std", fontsize=12)
         plt.title(f"Confronto Efficienza Temporale (N={N})\n(Trade-off tra successo e velocità)", fontsize=14)
         plt.grid(True, alpha=0.3, axis='y')
         
@@ -2100,12 +2100,12 @@ def plot_fitness_comparison(all_results, N_values, out_dir, raw_runs=None):
         for bar, mean, std in zip(bars, time_means, time_stds):
             if mean > 0:
                 plt.text(bar.get_x() + bar.get_width()/2, bar.get_height() + std + 0.001,
-                        f'{mean:.3f}±{std:.3f}', ha='center', va='bottom', fontsize=10, rotation=0)
+                        f'{mean:.3f}+/-{std:.3f}', ha='center', va='bottom', fontsize=10, rotation=0)
         
         fname = os.path.join(out_dir, f"fitness_time_N{N}.png")
         plt.savefig(fname, bbox_inches="tight", dpi=300)
         plt.close()
-        print(f"✓ Confronto tempo N={N} salvato: {fname}")
+        print(f"Saved time comparison for N={N}: {fname}")
     
     # ===========================================
     # 4. TRADE-OFF SUCCESS RATE VS COSTO (scatter)
@@ -2149,7 +2149,7 @@ def plot_fitness_comparison(all_results, N_values, out_dir, raw_runs=None):
         fname = os.path.join(out_dir, f"fitness_tradeoff_N{N}.png")
         plt.savefig(fname, bbox_inches="tight", dpi=300)
         plt.close()
-        print(f"✓ Trade-off fitness N={N} salvato: {fname}")
+        print(f"Saved fitness trade-off for N={N}: {fname}")
     
     # ===========================================
     # 5. EVOLUZIONE SUCCESS RATE TUTTE LE FITNESS
@@ -2172,7 +2172,7 @@ def plot_fitness_comparison(all_results, N_values, out_dir, raw_runs=None):
     fname = os.path.join(out_dir, f"fitness_evolution_all.png")
     plt.savefig(fname, bbox_inches="tight", dpi=300)
     plt.close()
-    print(f"✓ Evoluzione tutte fitness salvato: {fname}")
+    print(f"Saved fitness evolution overview: {fname}")
     
     print(f"\nFitness function comparison analysis completed")
     print(f"Generated comparison charts for F1-F6")
@@ -2265,32 +2265,30 @@ def main_sequential():
 def main_parallel():
     """Main parallelo ottimizzato"""
     os.makedirs(OUT_DIR, exist_ok=True)
-    
-    print(f"\n🚀 AVVIO VERSIONE PARALLELA (utilizzando {NUM_PROCESSES} processi)")
+
+    print(f"\nAVVIO VERSIONE PARALLELA (utilizzando {NUM_PROCESSES} processi)")
     print(f"CPU disponibili: {multiprocessing.cpu_count()}")
-    print(f"⏱️  Timeout configurati:")
-    print(f"   • BT: {BT_TIME_LIMIT}s" if BT_TIME_LIMIT else "   • BT: illimitato")
-    print(f"   • SA: {SA_TIME_LIMIT}s" if SA_TIME_LIMIT else "   • SA: illimitato")
-    print(f"   • GA: {GA_TIME_LIMIT}s" if GA_TIME_LIMIT else "   • GA: illimitato")
-    print(f"   • Esperimento: {EXPERIMENT_TIMEOUT}s" if EXPERIMENT_TIMEOUT else "   • Esperimento: illimitato")
-    
+    print("Timeout configurati:")
+    print(f"   - BT: {BT_TIME_LIMIT}s" if BT_TIME_LIMIT else "   - BT: illimitato")
+    print(f"   - SA: {SA_TIME_LIMIT}s" if SA_TIME_LIMIT else "   - SA: illimitato")
+    print(f"   - GA: {GA_TIME_LIMIT}s" if GA_TIME_LIMIT else "   - GA: illimitato")
+    print(f"   - Esperimento: {EXPERIMENT_TIMEOUT}s" if EXPERIMENT_TIMEOUT else "   - Esperimento: illimitato")
+
     start_total = perf_counter()
 
     # ======================================================
     # FASE 1: TUNING PARALLELO PER TUTTE LE FITNESS
     # ======================================================
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("FASE 1: TUNING GA PARALLELO PER TUTTE LE FITNESS")
-    print("="*60)
-    
-    # Dizionario per salvare i parametri ottimali di ogni fitness
+    print("=" * 60)
+
     all_best_params = {}
-    
+
     for fitness_mode in FITNESS_MODES:
-        print(f"\n🔧 Tuning per fitness {fitness_mode}...")
+        print(f"\nTuning per fitness {fitness_mode}...")
         fitness_start = perf_counter()
 
-        # Tuning parallelo per ogni N di questa fitness
         best_ga_params_for_N = {}
         tuning_csv = os.path.join(OUT_DIR, f"tuning_GA_{fitness_mode}.csv")
         with open(tuning_csv, "w", newline="") as f:
@@ -2307,9 +2305,9 @@ def main_parallel():
             ])
 
             for N in N_VALUES:
-                print(f"  🔧 Tuning N = {N}...")
+                print(f"  Tuning N = {N}...")
                 tuning_start = perf_counter()
-                
+
                 best = tune_ga_for_N_parallel(
                     N,
                     fitness_mode,
@@ -2320,10 +2318,10 @@ def main_parallel():
                     TOURNAMENT_SIZE_FIXED,
                     runs_tuning=RUNS_GA_TUNING,
                 )
-                
+
                 tuning_time = perf_counter() - tuning_start
                 best_ga_params_for_N[N] = best
-                print(f"     ✅ Completato in {tuning_time:.1f}s - Success rate: {best['success_rate']:.3f}")
+                print(f"     Completato in {tuning_time:.1f}s - Success rate: {best['success_rate']:.3f}")
 
                 writer.writerow([
                     N,
@@ -2336,23 +2334,22 @@ def main_parallel():
                     best["avg_gen_success"],
                 ])
 
-        # Salva i parametri per questa fitness
         all_best_params[fitness_mode] = best_ga_params_for_N
-        
+
         fitness_time = perf_counter() - fitness_start
-        print(f"📄 Tuning {fitness_mode} completato in {fitness_time:.1f}s - CSV: {tuning_csv}")
+        print(f"Tuning {fitness_mode} completato in {fitness_time:.1f}s - CSV: {tuning_csv}")
 
     # ======================================================
     # FASE 2: ESPERIMENTI FINALI PARALLELI PER TUTTE LE FITNESS
     # ======================================================
-    print(f"\n" + "="*60)
+    print("\n" + "=" * 60)
     print("FASE 2: ESPERIMENTI FINALI PARALLELI")
-    print("="*60)
-    
+    print("=" * 60)
+
     for fitness_mode in FITNESS_MODES:
-        print(f"\n🧪 Esperimenti finali per {fitness_mode}...")
+        print(f"\nEsperimenti finali per {fitness_mode}...")
         experiments_start = perf_counter()
-        
+
         results = run_experiments_with_best_ga_parallel(
             N_VALUES,
             runs_sa=RUNS_SA_FINAL,
@@ -2361,63 +2358,60 @@ def main_parallel():
             fitness_mode=fitness_mode,
             best_ga_params_for_N=all_best_params[fitness_mode],
         )
-        
-        experiments_time = perf_counter() - experiments_start
-        print(f"  ✅ Esperimenti completati in {experiments_time:.1f}s")
 
-        # Salva risultati finali
-        print(f"📊 Generazione grafici e CSV finali...")
+        experiments_time = perf_counter() - experiments_start
+        print(f"  Esperimenti completati in {experiments_time:.1f}s")
+
+        print("Generazione grafici e CSV finali...")
         save_results_to_csv(results, N_VALUES, fitness_mode, OUT_DIR)
         save_raw_data_to_csv(results, N_VALUES, fitness_mode, OUT_DIR)
         save_logical_cost_analysis(results, N_VALUES, fitness_mode, OUT_DIR)
         plot_and_save(results, N_VALUES, fitness_mode, OUT_DIR)
-        print(f"  ✅ Risultati salvati per {fitness_mode}")
+        print(f"  Risultati salvati per {fitness_mode}")
 
     total_time = perf_counter() - start_total
-    print(f"\n🏁 PIPELINE PARALLELA COMPLETATA!")
-    print(f"⏱️  Tempo totale: {total_time:.1f}s ({total_time/60:.1f} minuti)")
-    print(f"📊 Fitness processate: {len(FITNESS_MODES)}")
-    print(f"🖥️  Processi utilizzati: {NUM_PROCESSES}")
-    print(f"📁 File generati per fitness:")
-    print(f"   • 1 CSV statistiche aggregate")  
-    print(f"   • 3 CSV dati grezzi (SA, GA, BT)")
-    print(f"   • 1 CSV analisi costi logici")
-    print(f"   • 4 grafici (success rate, tempo, costi primari, evaluations)")
-    print(f"   • + 1 CSV tuning parametri GA")
-    print(f"📈 Totale: {6 + 4} file per {len(FITNESS_MODES)} fitness = {(6+4)*len(FITNESS_MODES)} file")
+    print("\nPIPELINE PARALLELA COMPLETATA!")
+    print(f"Tempo totale: {total_time:.1f}s ({total_time/60:.1f} minuti)")
+    print(f"Fitness processate: {len(FITNESS_MODES)}")
+    print(f"Processi utilizzati: {NUM_PROCESSES}")
+    print("File generati per fitness:")
+    print("   - 1 CSV statistiche aggregate")
+    print("   - 3 CSV dati grezzi (SA, GA, BT)")
+    print("   - 1 CSV analisi costi logici")
+    print("   - 4 grafici (success rate, tempo, costi primari, evaluations)")
+    print("   - + 1 CSV tuning parametri GA")
+    print(f"Totale: {6 + 4} file per {len(FITNESS_MODES)} fitness = {(6 + 4) * len(FITNESS_MODES)} file")
 
 
 def main_concurrent_tuning():
-    """Main con tuning contemporaneo di tutte le fitness"""
+    """Run concurrent tuning across all GA fitness functions with professional logging."""
     os.makedirs(OUT_DIR, exist_ok=True)
-    
-    print(f"\nTUNING CONTEMPORANEO DI TUTTE LE FITNESS")
-    print(f"Fitness: {FITNESS_MODES}")
-    print(f"Processi: {NUM_PROCESSES}")
-    print(f"CPU disponibili: {multiprocessing.cpu_count()}")
-    print(f"⏱️  Timeout configurati:")
-    print(f"   • BT: {BT_TIME_LIMIT}s" if BT_TIME_LIMIT else "   • BT: illimitato")
-    print(f"   • SA: {SA_TIME_LIMIT}s" if SA_TIME_LIMIT else "   • SA: illimitato") 
-    print(f"   • GA: {GA_TIME_LIMIT}s" if GA_TIME_LIMIT else "   • GA: illimitato")
-    print(f"   • Esperimento: {EXPERIMENT_TIMEOUT}s" if EXPERIMENT_TIMEOUT else "   • Esperimento: illimitato")
-    
+
+    print("\nCONCURRENT TUNING FOR ALL FITNESS FUNCTIONS")
+    print(f"Fitness modes: {FITNESS_MODES}")
+    print(f"Processes: {NUM_PROCESSES}")
+    print(f"Available CPU cores: {multiprocessing.cpu_count()}")
+    print("Configured timeouts:")
+    print(f"   - BT: {BT_TIME_LIMIT}s" if BT_TIME_LIMIT else "   - BT: unlimited")
+    print(f"   - SA: {SA_TIME_LIMIT}s" if SA_TIME_LIMIT else "   - SA: unlimited")
+    print(f"   - GA: {GA_TIME_LIMIT}s" if GA_TIME_LIMIT else "   - GA: unlimited")
+    print(f"   - Experiment: {EXPERIMENT_TIMEOUT}s" if EXPERIMENT_TIMEOUT else "   - Experiment: unlimited")
+
     start_total = perf_counter()
 
     # ======================================================
-    # FASE 1: TUNING CONTEMPORANEO PER TUTTI N
+    # PHASE 1: PARALLEL TUNING FOR ALL FITNESS FUNCTIONS
     # ======================================================
     print("\n" + "="*70)
-    print("FASE 1: TUNING CONTEMPORANEO PER TUTTE LE FITNESS")
+    print("PHASE 1: PARALLEL TUNING FOR ALL FITNESS FUNCTIONS")
     print("="*70)
-    
-    # Dizionario per salvare i parametri ottimali: all_best_params[fitness_mode][N] = params
+
     all_best_params = {fitness_mode: {} for fitness_mode in FITNESS_MODES}
-    
+
     for N in N_VALUES:
-        print(f"\nTuning contemporaneo per N = {N}")
+        print(f"\nParallel tuning for N = {N}")
         print("-" * 50)
-        
-        # Tuning contemporaneo di tutte le fitness per questo N
+
         fitness_results = tune_all_fitness_parallel(
             N,
             FITNESS_MODES,
@@ -2428,93 +2422,99 @@ def main_concurrent_tuning():
             TOURNAMENT_SIZE_FIXED,
             runs_tuning=RUNS_GA_TUNING,
         )
-        
-        # Salva i risultati per ogni fitness
+
         for fitness_mode, best_params in fitness_results.items():
             all_best_params[fitness_mode][N] = best_params
-    
-    # Salva i file CSV di tuning per ogni fitness
-    print(f"\nSalvando file CSV di tuning...")
+
     for fitness_mode in FITNESS_MODES:
-        tuning_csv = os.path.join(OUT_DIR, f"tuning_GA_{fitness_mode}.csv")
-        with open(tuning_csv, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                "N",
-                "pop_size",
-                "max_gen",
-                "pm",
-                "pc",
-                "tournament_size",
-                "success_rate_tuning",
-                "avg_gen_success_tuning",
-            ])
-            
-            for N in N_VALUES:
-                best = all_best_params[fitness_mode][N]
-                writer.writerow([
-                    N,
-                    best["pop_size"],
-                    best["max_gen"],
-                    best["pm"],
-                    best["pc"],
-                    best["tournament_size"],
-                    best["success_rate"],
-                    best["avg_gen_success"],
-                ])
-        print(f"  Completato: {tuning_csv}")
+        save_tuning_results(all_best_params[fitness_mode], fitness_mode, OUT_DIR)
 
     # ======================================================
-    # FASE 2: ESPERIMENTI FINALI PER TUTTE LE FITNESS
+    # PHASE 2: FINAL EXPERIMENTS WITH OPTIMAL PARAMETERS
     # ======================================================
-    print(f"\n" + "="*70)
-    print("FASE 2: ESPERIMENTI FINALI PER TUTTE LE FITNESS")
+    print("\n" + "="*70)
+    print("PHASE 2: FINAL EXPERIMENTS WITH OPTIMAL PARAMETERS")
     print("="*70)
-    
+
+    all_results = {}
+
     for fitness_mode in FITNESS_MODES:
-        print(f"\n🧪 Esperimenti finali per {fitness_mode}...")
-        experiments_start = perf_counter()
-        
-        results = run_experiments_with_best_ga_parallel(
+        print(f"\nFinal experiments GA-{fitness_mode}")
+
+        results = run_experiments_parallel(
             N_VALUES,
+            runs_bt=RUNS_BT_FINAL,
             runs_sa=RUNS_SA_FINAL,
             runs_ga=RUNS_GA_FINAL,
             bt_time_limit=BT_TIME_LIMIT,
             fitness_mode=fitness_mode,
             best_ga_params_for_N=all_best_params[fitness_mode],
         )
-        
-        experiments_time = perf_counter() - experiments_start
-        print(f"  ✅ Esperimenti completati in {experiments_time:.1f}s")
 
-        # Salva risultati finali
-        print(f"📊 Generazione grafici e CSV finali...")
+        all_results[fitness_mode] = results
+
         save_results_to_csv(results, N_VALUES, fitness_mode, OUT_DIR)
         save_raw_data_to_csv(results, N_VALUES, fitness_mode, OUT_DIR)
         save_logical_cost_analysis(results, N_VALUES, fitness_mode, OUT_DIR)
         plot_and_save(results, N_VALUES, fitness_mode, OUT_DIR)
-        print(f"  ✅ Risultati salvati per {fitness_mode}")
+
+    print(f"Completed fitness {fitness_mode}")
 
     # ======================================================
-    # FASE 3: ANALISI SPECIFICA BT e SA
+    # PHASE 3: COMPARATIVE ANALYSIS AND ADVANCED CHARTS
     # ======================================================
-    print(f"\n" + "="*70)
-    print("FASE 3: ANALISI DEDICATA BACKTRACKING e SIMULATED ANNEALING")
+    print("\n" + "="*70)
+    print("PHASE 3: COMPARATIVE ANALYSIS AND ADVANCED CHARTS")
     print("="*70)
-    
-    print(f"Generazione analisi specifiche BT e SA...")
-    
-    # Raccogli tutti i risultati da una qualsiasi fitness (BT/SA sono identici)
-    first_fitness = FITNESS_MODES[0]
-    first_results = run_experiments_with_best_ga_parallel(
+
+    for fitness in FITNESS_MODES:
+        print(f"  Comprehensive analysis for GA-F{fitness}...")
+        plot_comprehensive_analysis(
+            all_results[fitness],
+            N_VALUES,
+            fitness,
+            os.path.join(OUT_DIR, f"analysis_F{fitness}"),
+            raw_runs=None,
+        )
+
+    print("  Comparing fitness functions...")
+    plot_fitness_comparison(
+        all_results,
         N_VALUES,
-        runs_sa=RUNS_SA_FINAL,
-        runs_ga=RUNS_GA_FINAL,
-        bt_time_limit=BT_TIME_LIMIT,
-        fitness_mode=first_fitness,
-        best_ga_params_for_N=all_best_params[first_fitness],
+        os.path.join(OUT_DIR, "fitness_comparison"),
     )
-    
+
+    print("  Statistical analysis...")
+    plot_statistical_analysis(
+        all_results,
+        N_VALUES,
+        os.path.join(OUT_DIR, "statistical_analysis"),
+        raw_runs=None,
+    )
+
+    print("  Parameter tuning analysis...")
+    plot_tuning_analysis(
+        {},  # TODO: collect tuning data if needed
+        FITNESS_MODES,
+        N_VALUES,
+        os.path.join(OUT_DIR, "tuning_analysis"),
+    )
+
+    total_time = perf_counter() - start_total
+    print("\n" + "=" * 70)
+    print("CONCURRENT TUNING COMPLETE!")
+    print(f"Total time: {total_time:.1f}s ({total_time/60:.1f} minutes)")
+    print(f"Fitness processed: {len(FITNESS_MODES)}")
+    print("Charts generated:")
+    print(f"   - 9 core charts x {len(FITNESS_MODES)} fitness = {9 * len(FITNESS_MODES)} charts")
+    print("   - 6 cross-fitness comparison charts")
+    print("   - 12+ statistical analysis charts")
+    print("   - 10+ tuning analysis charts")
+    print(f"Total charts: ~{9 * len(FITNESS_MODES) + 28} high-quality outputs")
+    print(f"CSV files: {4 * len(FITNESS_MODES)}")
+    print(f"Processes used: {NUM_PROCESSES}")
+    print("=" * 70)
+
 def plot_statistical_analysis(all_results, N_values, out_dir, raw_runs=None):
     """
     Grafici statistici con boxplot e analisi della variabilità
@@ -2522,7 +2522,7 @@ def plot_statistical_analysis(all_results, N_values, out_dir, raw_runs=None):
     os.makedirs(out_dir, exist_ok=True)
     
     if not raw_runs:
-        print("⚠️  Raw runs non disponibili per analisi statistica dettagliata")
+        print("Raw runs non disponibili per analisi statistica dettagliata")
         return
     
     # Analizza un subset rappresentativo di N 
@@ -2531,8 +2531,8 @@ def plot_statistical_analysis(all_results, N_values, out_dir, raw_runs=None):
     for N in analysis_N:
         if N not in raw_runs:
             continue
-            
-        print(f"📊 Analisi statistica per N={N}...")
+
+        print(f"Analisi statistica per N={N}...")
         
         # ===========================================
         # 1. BOXPLOT DEI TEMPI (solo successi)
@@ -2577,7 +2577,7 @@ def plot_statistical_analysis(all_results, N_values, out_dir, raw_runs=None):
             fname = os.path.join(out_dir, f"boxplot_times_N{N}.png")
             plt.savefig(fname, bbox_inches="tight", dpi=300)
             plt.close()
-            print(f"✓ Boxplot tempi N={N}: {fname}")
+            print(f"Boxplot tempi N={N}: {fname}")
         
         # ===========================================
         # 2. BOXPLOT DELLE ITERAZIONI/GENERAZIONI
@@ -2619,7 +2619,7 @@ def plot_statistical_analysis(all_results, N_values, out_dir, raw_runs=None):
             fname = os.path.join(out_dir, f"boxplot_iterations_N{N}.png")
             plt.savefig(fname, bbox_inches="tight", dpi=300)
             plt.close()
-            print(f"✓ Boxplot iterazioni N={N}: {fname}")
+            print(f"Boxplot iterazioni N={N}: {fname}")
         
         # ===========================================
         # 3. ISTOGRAMMI DISTRIBUZIONI
@@ -2640,14 +2640,14 @@ def plot_statistical_analysis(all_results, N_values, out_dir, raw_runs=None):
                 mean_time = np.mean(sa_times)
                 std_time = np.std(sa_times)
                 plt.axvline(mean_time, color='red', linestyle='--', label=f'Media: {mean_time:.3f}s')
-                plt.axvline(mean_time + std_time, color='red', linestyle=':', alpha=0.7, label=f'±1σ: {std_time:.3f}s')
+                plt.axvline(mean_time + std_time, color='red', linestyle=':', alpha=0.7, label=f'+/-1 sigma: {std_time:.3f}s')
                 plt.axvline(mean_time - std_time, color='red', linestyle=':', alpha=0.7)
                 plt.legend()
                 
                 fname = os.path.join(out_dir, f"histogram_SA_times_N{N}.png")
                 plt.savefig(fname, bbox_inches="tight", dpi=300)
                 plt.close()
-                print(f"✓ Istogramma SA tempi N={N}: {fname}")
+                print(f"Istogramma SA tempi N={N}: {fname}")
         
         # GA histogram per la migliore fitness
         best_fitness = min(all_results.keys(), key=lambda f: -all_results[f]["GA"][N]["success_rate"])
@@ -2665,16 +2665,16 @@ def plot_statistical_analysis(all_results, N_values, out_dir, raw_runs=None):
                 mean_time = np.mean(ga_times)
                 std_time = np.std(ga_times)
                 plt.axvline(mean_time, color='red', linestyle='--', label=f'Media: {mean_time:.3f}s')
-                plt.axvline(mean_time + std_time, color='red', linestyle=':', alpha=0.7, label=f'±1σ: {std_time:.3f}s')
+                plt.axvline(mean_time + std_time, color='red', linestyle=':', alpha=0.7, label=f'+/-1 sigma: {std_time:.3f}s')
                 plt.axvline(mean_time - std_time, color='red', linestyle=':', alpha=0.7)
                 plt.legend()
                 
                 fname = os.path.join(out_dir, f"histogram_GA_F{best_fitness}_times_N{N}.png")
                 plt.savefig(fname, bbox_inches="tight", dpi=300)
                 plt.close()
-                print(f"✓ Istogramma GA-F{best_fitness} tempi N={N}: {fname}")
+                print(f"Istogramma GA-F{best_fitness} tempi N={N}: {fname}")
     
-    print(f"📈 Analisi statistica completata")
+    print("Analisi statistica completata")
 
 
 def plot_tuning_analysis(tuning_data, fitness_modes, N_values, out_dir):
@@ -2682,7 +2682,7 @@ def plot_tuning_analysis(tuning_data, fitness_modes, N_values, out_dir):
     Analisi dei dati di tuning GA con heatmap e scatter plots
     """
     if not tuning_data:
-        print("⚠️  Dati tuning non disponibili")
+        print("Dati tuning non disponibili")
         return
         
     os.makedirs(out_dir, exist_ok=True)
@@ -2691,8 +2691,8 @@ def plot_tuning_analysis(tuning_data, fitness_modes, N_values, out_dir):
     for fitness in fitness_modes:
         if fitness not in tuning_data:
             continue
-            
-        print(f"🔧 Analisi tuning GA-F{fitness}...")
+
+        print(f"Analisi tuning GA-F{fitness}...")
         
         # Scegli N rappresentativo per analisi dettagliata
         analysis_N = [n for n in [24, 40] if n in N_values and n in tuning_data[fitness]]
@@ -2748,7 +2748,7 @@ def plot_tuning_analysis(tuning_data, fitness_modes, N_values, out_dir):
                 fname = os.path.join(out_dir, f"heatmap_tuning_GA_F{fitness}_N{N}.png")
                 plt.savefig(fname, bbox_inches="tight", dpi=300)
                 plt.close()
-                print(f"✓ Heatmap tuning GA-F{fitness} N={N}: {fname}")
+                print(f"Heatmap tuning GA-F{fitness} N={N}: {fname}")
             
             # ===========================================
             # 2. SCATTER: COSTO vs QUALITÀ
@@ -2768,7 +2768,7 @@ def plot_tuning_analysis(tuning_data, fitness_modes, N_values, out_dir):
             else:
                 plt.scatter(costs, success_rates, s=100, alpha=0.7, edgecolors='black')
             
-            plt.xlabel("Costo Computazionale (pop_size × max_gen)", fontsize=12)
+            plt.xlabel("Costo Computazionale (pop_size x max_gen)", fontsize=12)
             plt.ylabel("Tasso di Successo", fontsize=12)
             plt.title(f"GA-F{fitness}: Trade-off Costo vs Qualità (N={N})\n(Mostra se vale la pena aumentare parametri)", fontsize=14)
             plt.grid(True, alpha=0.3)
@@ -2789,7 +2789,7 @@ def plot_tuning_analysis(tuning_data, fitness_modes, N_values, out_dir):
             fname = os.path.join(out_dir, f"scatter_cost_quality_GA_F{fitness}_N{N}.png")
             plt.savefig(fname, bbox_inches="tight", dpi=300)
             plt.close()
-            print(f"✓ Scatter costo-qualità GA-F{fitness} N={N}: {fname}")
+            print(f"Scatter costo-qualità GA-F{fitness} N={N}: {fname}")
             
             # ===========================================
             # 3. LINE PLOT per MUTATION RATE
@@ -2814,7 +2814,7 @@ def plot_tuning_analysis(tuning_data, fitness_modes, N_values, out_dir):
                     plt.errorbar(pm_values, pm_sr_means, yerr=pm_sr_stds, 
                                marker='o', linewidth=2, markersize=8, capsize=5)
                     plt.xlabel("Mutation Rate (pm)", fontsize=12)
-                    plt.ylabel("Success Rate Medio ± Std", fontsize=12)
+                    plt.ylabel("Success Rate Medio +/- Std", fontsize=12)
                     plt.title(f"GA-F{fitness}: Effetto Mutation Rate (N={N})\n(Mostra sensibilità alla mutazione)", fontsize=14)
                     plt.grid(True, alpha=0.3)
                     plt.ylim(0, 1.05)
@@ -2822,9 +2822,9 @@ def plot_tuning_analysis(tuning_data, fitness_modes, N_values, out_dir):
                     fname = os.path.join(out_dir, f"lineplot_mutation_GA_F{fitness}_N{N}.png")
                     plt.savefig(fname, bbox_inches="tight", dpi=300)
                     plt.close()
-                    print(f"✓ Line plot mutation GA-F{fitness} N={N}: {fname}")
+                    print(f"Line plot mutation GA-F{fitness} N={N}: {fname}")
     
-    print(f"🔧 Analisi tuning completata")
+    print("Analisi tuning completata")
 
 
 def save_tuning_results(best_params_for_N, fitness_mode, out_dir):
@@ -2853,7 +2853,7 @@ def save_tuning_results(best_params_for_N, fitness_mode, out_dir):
                 params.get("avg_gen_success", "")
             ])
     
-    print(f"✅ Risultati tuning GA-F{fitness_mode} salvati: {filename}")
+    print(f"Risultati tuning GA-F{fitness_mode} salvati: {filename}")
 
 
 # Alias per compatibilità con il main
@@ -2870,153 +2870,6 @@ def run_experiments_parallel(N_values, runs_bt, runs_sa, runs_ga, bt_time_limit,
         fitness_mode=fitness_mode,
         best_ga_params_for_N=best_ga_params_for_N
     )
-
-
-def main_concurrent_tuning():
-    """Main con tuning contemporaneo di tutte le fitness"""
-    os.makedirs(OUT_DIR, exist_ok=True)
-    
-    print(f"\nTUNING CONTEMPORANEO DI TUTTE LE FITNESS")
-    print(f"Fitness: {FITNESS_MODES}")
-    print(f"Processi: {NUM_PROCESSES}")
-    print(f"CPU disponibili: {multiprocessing.cpu_count()}")
-    print(f"⏱️  Timeout configurati:")
-    print(f"   • BT: {BT_TIME_LIMIT}s" if BT_TIME_LIMIT else "   • BT: illimitato")
-    print(f"   • SA: {SA_TIME_LIMIT}s" if SA_TIME_LIMIT else "   • SA: illimitato") 
-    print(f"   • GA: {GA_TIME_LIMIT}s" if GA_TIME_LIMIT else "   • GA: illimitato")
-    print(f"   • Esperimento: {EXPERIMENT_TIMEOUT}s" if EXPERIMENT_TIMEOUT else "   • Esperimento: illimitato")
-    
-    start_total = perf_counter()
-
-    # ======================================================
-    # FASE 1: TUNING CONTEMPORANEO PER TUTTI N
-    # ======================================================
-    print("\n" + "="*70)
-    print("FASE 1: TUNING CONTEMPORANEO PER TUTTE LE FITNESS")
-    print("="*70)
-    
-    # Dizionario per salvare i parametri ottimali: all_best_params[fitness_mode][N] = params
-    all_best_params = {fitness_mode: {} for fitness_mode in FITNESS_MODES}
-    
-    for N in N_VALUES:
-        print(f"\nTuning contemporaneo per N = {N}")
-        print("-" * 50)
-        
-        # Tuning contemporaneo di tutte le fitness per questo N
-        fitness_results = tune_all_fitness_parallel(
-            N,
-            FITNESS_MODES,
-            POP_MULTIPLIERS,
-            GEN_MULTIPLIERS,
-            PM_VALUES,
-            PC_FIXED,
-            TOURNAMENT_SIZE_FIXED,
-            runs_tuning=RUNS_GA_TUNING,
-        )
-        
-        # Salva i risultati per ogni fitness
-        for fitness_mode, best_params in fitness_results.items():
-            all_best_params[fitness_mode][N] = best_params
-    
-    # Salva i file CSV di tuning per ogni fitness
-    for fitness_mode in FITNESS_MODES:
-        save_tuning_results(all_best_params[fitness_mode], fitness_mode, OUT_DIR)
-    
-    # ======================================================
-    # FASE 2: ESPERIMENTI FINALI CON PARAMETRI OTTIMALI
-    # ======================================================
-    print("\n" + "="*70)
-    print("FASE 2: ESPERIMENTI FINALI CON PARAMETRI OTTIMALI")
-    print("="*70)
-    
-    # Dizionario per risultati finali
-    all_results = {}
-    
-    # Per ogni fitness, esegui esperimenti finali
-    for fitness_mode in FITNESS_MODES:
-        print(f"\n🧬 Esperimenti finali GA-{fitness_mode}")
-        
-        first_results = run_experiments_parallel(
-            N_VALUES,
-            runs_bt=RUNS_BT_FINAL,
-            runs_sa=RUNS_SA_FINAL,
-            runs_ga=RUNS_GA_FINAL,
-            bt_time_limit=BT_TIME_LIMIT,
-            fitness_mode=fitness_mode,
-            best_ga_params_for_N=all_best_params[fitness_mode],
-        )
-        
-        all_results[fitness_mode] = first_results
-        
-        # Salva risultati e grafici per questa fitness
-        save_results_to_csv(first_results, fitness_mode, OUT_DIR)
-        save_raw_data_to_csv(first_results, fitness_mode, OUT_DIR)
-        save_logical_cost_analysis(first_results, N_VALUES, fitness_mode, OUT_DIR)
-        plot_and_save(first_results, N_VALUES, fitness_mode, OUT_DIR)
-        
-        print(f"✅ Fitness {fitness_mode} completata")
-    
-    # ======================================================
-    # FASE 3: ANALISI COMPARATIVA COMPLETA
-    # ======================================================
-    print("\n" + "="*70)
-    print("FASE 3: ANALISI COMPARATIVA E GRAFICI AVANZATI") 
-    print("="*70)
-    
-    # 1. Grafici comprensivi per ogni fitness
-    for fitness in FITNESS_MODES:
-        print(f"  📊 Analisi completa per GA-F{fitness}...")
-        plot_comprehensive_analysis(
-            all_results[fitness], 
-            N_VALUES, 
-            fitness, 
-            os.path.join(OUT_DIR, f"analysis_F{fitness}"),
-            raw_runs=None
-        )
-    
-    # 2. Confronto tra tutte le fitness
-    print(f"  🔬 Confronto tra fitness functions...")
-    plot_fitness_comparison(
-        all_results,
-        N_VALUES, 
-        os.path.join(OUT_DIR, "fitness_comparison")
-    )
-    
-    # 3. Analisi statistica dettagliata  
-    print(f"  📈 Analisi statistica...")
-    plot_statistical_analysis(
-        all_results,
-        N_VALUES,
-        os.path.join(OUT_DIR, "statistical_analysis"),
-        raw_runs=None
-    )
-    
-    # 4. Analisi tuning  
-    print(f"  🔧 Analisi tuning parametri...")
-    plot_tuning_analysis(
-        {},  # TODO: raccogliere dati tuning se necessario
-        FITNESS_MODES,
-        N_VALUES,
-        os.path.join(OUT_DIR, "tuning_analysis")
-    )
-
-    total_time = perf_counter() - start_total
-    print(f"\n" + "="*70)
-    print(f"🎯 TUNING CONTEMPORANEO COMPLETATO!")
-    print(f"⏱️  Tempo totale: {total_time:.1f}s ({total_time/60:.1f} minuti)")
-    print(f"🧬 Fitness processate: {len(FITNESS_MODES)}")
-    print(f"📊 Grafici generati:")
-    print(f"   • 9 grafici base × {len(FITNESS_MODES)} fitness = {9*len(FITNESS_MODES)} grafici") 
-    print(f"   • 6 grafici confronto fitness")
-    print(f"   • 12+ grafici analisi statistica")
-    print(f"   • 10+ grafici analisi tuning")
-    print(f"📁 Totale: ~{9*len(FITNESS_MODES) + 28} grafici di alta qualità")
-    print(f"💾 CSV: {4*len(FITNESS_MODES)} file")
-    print(f"🖥️  Processi utilizzati: {NUM_PROCESSES}")
-    print("="*70)
-    print(f"Processi utilizzati: {NUM_PROCESSES}")
-
-
 if __name__ == "__main__":
     # Scelta tra le diverse modalità
     import sys

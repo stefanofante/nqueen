@@ -6,7 +6,7 @@ date: "YYYY-MM-DD"
 
 # 1. Introduzione
 
-Il problema delle N regine (N-Queens) consiste nel posizionare N regine su una scacchiera N×N in modo che nessuna minacci le altre. In termini formali, nessuna coppia di regine deve condividere la stessa riga, colonna o diagonale.
+Il problema delle N regine (N-Queens) consiste nel posizionare N regine su una scacchiera N x N in modo che nessuna minacci le altre. In termini formali, nessuna coppia di regine deve condividere la stessa riga, colonna o diagonale.
 
 Questo problema è un classico esempio di problema di soddisfacimento di vincoli e viene spesso utilizzato come benchmark per:
 
@@ -18,7 +18,7 @@ In questo lavoro vengono confrontati tre approcci:
 
 1. **Backtracking (BT)** iterativo, senza ricorsione
 2. **Simulated Annealing (SA)**
-3. **Algoritmo Genetico (GA)** con diverse funzioni di fitness (F1…F6) e con una procedura di tuning automatico dei parametri
+3. **Algoritmo Genetico (GA)** con diverse funzioni di fitness (F1...F6) e con una procedura di tuning automatico dei parametri
 
 Gli obiettivi principali sono:
 
@@ -31,7 +31,7 @@ Gli obiettivi principali sono:
 
 # 2. Formulazione del problema e rappresentazione
 
-Il problema N-Queens richiede di posizionare N regine su una scacchiera N×N in modo che:
+Il problema N-Queens richiede di posizionare N regine su una scacchiera N x N in modo che:
 
 - non ce ne siano due sulla stessa riga
 - non ce ne siano due sulla stessa colonna
@@ -43,12 +43,14 @@ Nel progetto viene adottata la seguente rappresentazione:
   `board[col] = row`
 
 dove:
-- `col` è l’indice di colonna (0…N-1)
+
+- `col` è l’indice di colonna (0...N-1)
 - `row` è la riga della regina in quella colonna
 
 Con questa codifica è garantito che ci sia al massimo una regina per colonna, mentre possono esistere conflitti sulle righe e sulle diagonali.
 
 Due regine sono in conflitto se:
+
 - hanno la stessa riga: `row[i] == row[j]`
 - sono sulla stessa diagonale principale: `row[i] - i == row[j] - j`
 - sono sulla stessa diagonale secondaria: `row[i] + i == row[j] + j`
@@ -58,6 +60,7 @@ La funzione chiave è:
 `conflicts(board) → numero di coppie di regine in conflitto`
 
 Per efficienza è stata implementata in O(N), usando contatori per:
+
 - righe (`row_count[row]`)
 - diagonali principali (`diag1[row - col]`)
 - diagonali secondarie (`diag2[row + col]`)
@@ -84,6 +87,7 @@ Caratteristiche principali:
 - viene mantenuto un contatore dei **nodi esplorati** (tentativi di posizionamento)
 
 Per ogni N si misurano:
+
 - `solution_found` (true/false)
 - `nodes` (nodi esplorati)
 - `time` (tempo per trovare la prima soluzione)
@@ -101,18 +105,20 @@ Elementi principali:
 - mossa: scelta di una colonna casuale e variazione della riga della relativa regina
 - accettazione:
   - se il costo diminuisce, la mossa è sempre accettata
-  - se il costo aumenta, la mossa viene accettata con probabilità `exp(-Δ / T)`
-  - Δ = aumento dei conflitti, T = temperatura corrente
+  - se il costo aumenta, la mossa viene accettata con probabilità `exp(-Delta / T)`
+  - Delta = aumento dei conflitti, T = temperatura corrente
 - raffreddamento:
   - temperatura iniziale `T0`
   - aggiornata con `T = alpha * T` ad ogni iterazione
 
 Parametri tipici nel codice:
+
 - `max_iter = 2000 + 200 * N`
 - `T0 = 1.0`
 - `alpha = 0.995`
 
 Output per ogni run:
+
 - `success` (true se viene raggiunta una configurazione con 0 conflitti)
 - `steps` (numero di iterazioni)
 - `time` (tempo di esecuzione)
@@ -122,6 +128,7 @@ Output per ogni run:
 ## 3.3 Algoritmo Genetico (GA)
 
 L’algoritmo genetico (GA) mantiene una popolazione di individui (configurazioni) e applica iterativamente:
+
 - selezione
 - crossover
 - mutazione
@@ -148,10 +155,12 @@ L’algoritmo genetico (GA) mantiene una popolazione di individui (configurazion
 ### Criterio di arresto
 
 Un singolo run del GA termina quando:
+
 - viene trovato un individuo con 0 conflitti (`success = true`)
 - oppure viene raggiunta la generazione `max_gen` senza soluzione (`success = false`)
 
 Output:
+
 - `success` (true/false)
 - `gen` (numero di generazioni effettivamente utilizzate)
 - `time` (tempo di esecuzione)
@@ -160,7 +169,7 @@ Output:
 
 ---
 
-# 4. Funzioni di fitness per il GA (F1…F6)
+# 4. Funzioni di fitness per il GA (F1...F6)
 
 Le funzioni di fitness definiscono come il GA valuta gli individui. L’obiettivo è assegnare valori più alti alle configurazioni “migliori” (meno conflitti, struttura desiderabile).
 
@@ -182,6 +191,7 @@ Di fatto trasla F1; ranking identico.
 ## F3 – penalità sui cluster diagonali (lineare)
 
 Penalizza le diagonali con più regine:
+
 - somma le penalità delle diagonali principali e secondarie per cui `cnt > 1`
 - fitness: `F3(ind) = max_pairs - penalty_diag`
 
@@ -230,9 +240,9 @@ I parametri del GA influenzano fortemente il tasso di successo e il tempo di ese
 
 Per ogni coppia (N, fitness Fₖ) si esplora una griglia di parametri:
 
-- `pop_size ∈ {max(50, 3N), max(50, 6N), max(50, 10N)}`
-- `max_gen ∈ {20N, 40N, 60N}`
-- `p_m ∈ {0.05, 0.10, 0.15}`
+- `pop_size in {max(50, 3N), max(50, 6N), max(50, 10N)}`
+- `max_gen in {20N, 40N, 60N}`
+- `p_m in {0.05, 0.10, 0.15}`
 - `p_c = 0.8`
 - `tournament_size = 3`
 
@@ -283,11 +293,13 @@ results_nqueens_tuning/time_vs_N_GA_F3_tuned.png
 Con F1 e F2 anche dopo tuning il tasso di successo resta limitato (circa 50–60% per N = 8), scende ulteriormente per N maggiori. L’aumento di `pop_size` e `max_gen` migliora solo parzialmente, ma cresce il tempo di esecuzione.
 
 Quindi:
+
 - una fitness basata solo sul numero totale di conflitti fornisce un segnale troppo debole per guidare efficacemente l’evoluzione, specialmente per N grande.
 
 ## 7.2 Comportamento di F3, F5 e F6
 
 F3 penalizza i cluster di regine sulle stesse diagonali, migliorando nettamente le prestazioni:
+
 - per N piccoli, successo vicino al 100%
 - per N medi e grandi, tassi nettamente superiori rispetto a F1/F2
 
@@ -297,7 +309,7 @@ F5 (penalità quadratica) e F6 (trasformazione esponenziale) danno risultati ana
 
 - **BT**: per N piccoli è veloce e deterministico, ma scala male per N grandi
 - **SA**: offre un buon compromesso tra semplicità, costo e successo; tuning moderato
-- **GA/F3+varianti**: parametri adeguati consentono successo anche per N grandi, costo pop_size × max_gen elevato, flessibilità e robustezza superiori
+- **GA/F3+varianti**: parametri adeguati consentono successo anche per N grandi, costo pop_size x max_gen elevato, flessibilità e robustezza superiori
 
 ---
 
