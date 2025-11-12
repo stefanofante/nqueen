@@ -1,6 +1,6 @@
 # N-Queens Problem: Comprehensive Algorithm Analysis
 
-This project provides a comprehensive comparative analysis of three fundamental algorithms for solving the N-Queens problem: **Backtracking**, **Simulated Annealing**, and **Genetic Algorithm**. The framework includes advanced statistical analysis, automated parameter tuning, and extensive visualization capabilities. The solver implementations live inside the `nqueens/` package, while `algoanalisys.py` focuses on orchestration, reporting, and data export.
+This project provides a comprehensive comparative analysis of three fundamental algorithms for solving the N-Queens problem: **Backtracking**, **Simulated Annealing**, and **Genetic Algorithm**. The framework includes advanced statistical analysis, automated parameter tuning, and extensive visualization capabilities. The solver implementations live inside the `nqueens/` package. The orchestration, tuning, reporting, and plots have been modularized under `nqueens/analysis/`, while `algoanalisys.py` now acts as a thin backwards-compatible facade re-exporting the public APIs.
 
 ## Overview
 
@@ -256,12 +256,10 @@ pip install -r requirements.txt
 
 ### Dependencies
 
-```text
-matplotlib>=3.5.0
-numpy>=1.21.0
-pandas>=1.3.0
-seaborn>=0.11.0
-```
+- Core: `numpy>=1.21.0`, `pandas>=1.3.0`
+- Optional (for charts): `matplotlib>=3.5.0`
+
+Note: Plotting is optional at runtime. If `matplotlib` is not installed, the CLI and APIs will still run; plotting functions are stubbed and will raise a clear runtime error only when called.
 
 ## Usage
 
@@ -291,6 +289,28 @@ CLI flags overview:
 - --skip-tuning: reuse parameters from config.json
 - --config: configuration file path (default: config.json)
 - --quick-test: run quick regression and exit
+
+### Python API
+
+You can also call the high-level APIs directly. For example, a quick smoke test:
+
+```python
+from algoanalisys import run_quick_regression_tests
+
+run_quick_regression_tests()
+```
+
+The module `algoanalisys.py` re-exports the public functions from `nqueens.analysis.*` to preserve backwards compatibility.
+
+Additionally, the core package exposes low-level helpers:
+
+```python
+from nqueens import is_valid_solution, conflicts
+
+board = [0, 4, 7, 5, 2, 6, 1, 3]
+assert is_valid_solution(board)  # True if no queens attack each other
+print(conflicts(board))          # 0 for a valid solution
+```
 
 ### Configuration
 
@@ -443,6 +463,20 @@ results_nqueens_tuning/
 - **Scalability**: Performance degradation with increasing problem size
 
 ## Technical Architecture
+
+### Modular Architecture
+
+The orchestration layer is organized as a modular package under `nqueens/analysis/`:
+
+- `settings.py`: global settings, timeouts, tuning grids, output paths
+- `stats.py`: typed result records and statistical aggregations
+- `tuning.py`: GA parameter search (sequential and parallel)
+- `experiments.py`: experiment runners for BT/SA/GA with optimal parameters
+- `reporting.py`: CSV exports for aggregated and raw data, logical cost analysis
+- `plots.py`: chart generation (optional, requires matplotlib)
+- `cli.py`: pipelines, CLI wiring, and a quick regression runner
+
+The legacy `algoanalisys.py` file is now a thin facade that imports and re-exports these public APIs to avoid breaking existing imports and tests.
 
 ### Core Components
 

@@ -55,3 +55,24 @@ def conflicts_on2(board: Sequence[int]) -> int:
             if board[i] == board[j] or abs(board[i] - board[j]) == abs(i - j):
                 conflicts_count += 1
     return conflicts_count
+
+
+def is_valid_solution(board: Sequence[int]) -> bool:
+    """Return True if the board represents a valid N-Queens solution.
+
+    Contract
+    - Input: sequence of length N where board[col] = row (0-based indices)
+    - Valid if: all 0 <= row < N and no pairs of queens attack each other
+    - Implementation: range check + conflicts(board) == 0
+    """
+    n = len(board)
+    if n == 0:
+        return False
+    # Range validation to ensure rows are within chessboard bounds
+    for row in board:
+        if not isinstance(row, int):
+            return False
+        if row < 0 or row >= n:
+            return False
+    # Zero conflicts implies no shared rows or diagonals (columns are unique by representation)
+    return conflicts(board) == 0

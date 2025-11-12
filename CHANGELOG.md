@@ -5,6 +5,20 @@ All notable changes to the N-Queens Comparative Algorithm Analysis project will 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2025-11-12
+
+### Changed
+
+- Modularized the orchestration layer into `nqueens/analysis/` with dedicated modules:
+  - `settings`, `stats`, `tuning`, `experiments`, `reporting`, `plots`, `cli`
+- Converted `algoanalisys.py` into a thin backwards-compatible facade re-exporting the public APIs
+- Made plotting imports optional with clear runtime stubs when `matplotlib` is not installed
+- Updated README to document the new modular architecture, Python API usage, and optional plotting dependency
+
+### Fixed
+
+- Ensured unit tests and the quick regression runner work without `matplotlib` installed
+
 ## [2.0.0] - 2025-11-11
 
 ### Major Changes
