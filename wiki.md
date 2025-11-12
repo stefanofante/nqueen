@@ -1,6 +1,6 @@
 # N-Queens Algorithm Comparison: Advanced Analysis Wiki
 
-This wiki provides comprehensive documentation for the N-Queens comparative algorithm analysis project, featuring Backtracking (BT), Simulated Annealing (SA), and Genetic Algorithm (GA) implementations. Solver code now lives inside the `nqueens/` package, while `algoanalisys.py` acts as the orchestrator for tuning, experimentation, and reporting.
+This wiki provides comprehensive documentation for the N-Queens comparative algorithm analysis project, featuring Backtracking (BT), Simulated Annealing (SA), and Genetic Algorithm (GA) implementations. Solver code lives inside the `nqueens/` package. The orchestration, tuning, reporting and plotting are modularized under `nqueens/analysis/`. The file `algoanalisys.py` is now a thin, backwards-compatible facade that re-exports public APIs and provides the CLI entry point.
 
 ## Overview
 
@@ -19,12 +19,27 @@ This project compares three fundamental approaches to solving the N-Queens probl
 
 ## Project Structure
 
-* `algoanalisys.py`: orchestration layer handling tuning pipelines, experiment scheduling, chart generation, and CSV export
+Core solvers and shared utilities:
+
 * `nqueens/backtracking.py`: iterative backtracking solver
 * `nqueens/simulated_annealing.py`: simulated annealing solver
 * `nqueens/genetic.py`: genetic algorithm driver
 * `nqueens/fitness.py`: shared GA fitness functions
-* `nqueens/utils.py`: conflict counters and shared utilities
+* `nqueens/utils.py`: conflict counters, solution validator (`is_valid_solution`), and shared utilities
+
+Modular orchestration layer:
+
+* `nqueens/analysis/settings.py`: global settings, timeouts, tuning grids, output paths
+* `nqueens/analysis/stats.py`: typed result records and statistical aggregations
+* `nqueens/analysis/tuning.py`: GA parameter search (sequential and parallel)
+* `nqueens/analysis/experiments.py`: experiment runners (BT/SA/GA) with optimal parameters
+* `nqueens/analysis/reporting.py`: CSV exports for aggregated/raw data and logical cost analysis
+* `nqueens/analysis/plots.py`: chart generation (optional, requires matplotlib)
+* `nqueens/analysis/cli.py`: pipelines, CLI wiring, quick regression runner, flags: `--mode`, `--fitness`, `--skip-tuning`, `--validate`
+
+Compatibility facade:
+
+* `algoanalisys.py`: thin wrapper re-exporting the public APIs from `nqueens.analysis.*` and exposing the CLI entry point
 
 ## Mathematical Foundation
 
@@ -560,8 +575,8 @@ def tune_ga_for_N(N, fitness_mode, pop_multipliers, gen_multipliers, pm_values):
 
 **Technical Features:**
 
-* Matplotlib backend for precision
-* Seaborn integration for statistical plots
+* Matplotlib backend for precision (optional dependency)
+* Seaborn integration for statistical plots (optional)
 * Custom styling for consistency
 * LaTeX rendering for mathematical expressions
 * Multi-format export (PNG, PDF, SVG)
@@ -618,14 +633,22 @@ scaling_factor, projected_performance, resource_utilization
 
 ### Code Organization
 
-```
-algoanalisys.py
-├── Configuration and CLI
-├── Tuning Framework (GA/fitness F1–F6)
-├── Experiment Orchestration (BT/SA/GA)
-├── Statistical Aggregation and CSV Export
-├── Visualization Engine (Matplotlib/Seaborn)
-└── Quick Regression Runner (N=8)
+```text
+algoanalisys.py                # Backwards-compatible facade and CLI entry point
+nqueens/
+├── backtracking.py            # BT solvers
+├── simulated_annealing.py     # SA solver
+├── genetic.py                 # GA solver
+├── fitness.py                 # GA fitness functions
+├── utils.py                   # conflicts(), is_valid_solution(), helpers
+└── analysis/
+    ├── settings.py            # global settings, timeouts, grids
+    ├── stats.py               # typed stats and aggregations
+    ├── tuning.py              # GA tuning (seq/parallel)
+    ├── experiments.py         # experiment runners (seq/parallel)
+    ├── reporting.py           # CSV exports
+    ├── plots.py               # plotting (optional)
+    └── cli.py                 # pipelines, CLI, quick regression
 ```
 
 ### Performance Optimizations
@@ -688,6 +711,33 @@ python algoanalisys.py --quick-test
 
 # Run selected fitness functions only
 python algoanalisys.py --fitness F1,F3,F5
+
+# Enable result/solution validation (extra assertions)
+python algoanalisys.py --validate
+```
+
+### Validation
+
+The framework includes optional validation checks that you can enable with the `--validate` flag.
+
+What it does:
+
+* Backtracking (BT): when a board is produced, it is verified with `is_valid_solution(board)` to ensure no queens attack each other.
+* Simulated Annealing (SA) and Genetic Algorithm (GA): for runs marked as successful, the results are checked to ensure `best_conflicts == 0` and `timeout == False`.
+
+Notes:
+
+* These checks add lightweight assertions meant for debugging and CI. For very large runs you may keep them off to minimize overhead.
+* Plotting remains optional; validation does not require matplotlib.
+
+Low-level API example:
+
+```python
+from nqueens import is_valid_solution, conflicts
+
+board = [0, 4, 7, 5, 2, 6, 1, 3]
+print(is_valid_solution(board))  # True
+print(conflicts(board))          # 0
 ```
 
 **Output Interpretation:**
@@ -795,12 +845,21 @@ python -m cProfile -o profile.stats algo.py
 
 ## Planned Improvements
 
-* Add a CLI flag that switches among `sequential`, `parallel`, and `concurrent` modes and selects which fitness functions run
-* Load tuning parameters and board sizes from a JSON configuration file, refreshing it after successful tuning runs
-* Provide quick regression tests on a small instance (for example N = 8) to validate the three solvers and the CSV export pipeline
-* Expose a flag to skip tuning when trusted parameters already exist
-* Guarantee clean shutdown on `Ctrl+C` by terminating all child processes
-* Display progress information so long experiments share their current stage
+Implemented as of v2.1.0:
+
+* CLI flag `--mode` to switch among `sequential`, `parallel`, and `concurrent`
+* Fitness filtering via `--fitness`
+* Configuration via `config.json` with persisted optimal parameters
+* Quick regression tests on N=8 (`--quick-test`)
+* Flag `--skip-tuning` to reuse stored parameters
+* Graceful shutdown on `Ctrl+C` and progress reporting
+* New `--validate` flag for solution/result consistency checks
+
+Potential next steps:
+
+* Optional HTML report bundling selected charts and CSVs
+* Extended statistical plots when raw runs are persisted for all algorithms
+* CI workflow for type checking and smoke tests
 
 ## Contributing
 
