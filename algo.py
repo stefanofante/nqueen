@@ -1,17 +1,23 @@
-import os
+import argparse
 import csv
-import random
-import math
-import time
-from time import perf_counter
-import statistics
 import multiprocessing
+import os
+import random
+import statistics
+import tempfile
 from concurrent.futures import ProcessPoolExecutor
-from collections import Counter
+from pathlib import Path
+from time import perf_counter
+
 import matplotlib.pyplot as plt
-import seaborn as sns
 import numpy as np
 import pandas as pd
+import seaborn as sns
+
+from config_manager import ConfigManager
+from nqueens.backtracking import bt_nqueens_first
+from nqueens.genetic import ga_nqueens
+from nqueens.simulated_annealing import sa_nqueens
 
 # ======================================================
 # FUNZIONI STATISTICHE AVANZATE
@@ -115,6 +121,130 @@ def compute_grouped_statistics(results_list, success_key='success'):
     
     return stats
 
+
+class ProgressPrinter:
+    """Lightweight textual progress reporter for long-running loops."""
+
+    def __init__(self, total, label):
+        self.total = max(1, total)
+        self.label = label
+
+    def update(self, index, detail=""):
+        percent = (index / self.total) * 100
+        suffix = f" - {detail}" if detail else ""
+        print(f"[{self.label}] {index}/{self.total} ({percent:.0f}%)" + suffix)
+
+
+def parse_fitness_filters(fitness_args):
+    """Normalize fitness CLI arguments into an uppercase list."""
+    if not fitness_args:
+        return None
+
+    selected = []
+    for entry in fitness_args:
+        for token in entry.split(','):
+            token = token.strip().upper()
+            if token:
+                selected.append(token)
+
+    return selected or None
+
+
+def normalize_optimal_parameters(raw_params):
+    """Convert JSON-loaded optimal parameters into an int-keyed mapping."""
+    normalized = {}
+    if not raw_params:
+        return normalized
+
+    for key, value in raw_params.items():
+        try:
+            normalized[int(key)] = value
+        except (TypeError, ValueError):
+            normalized[key] = value
+
+    return normalized
+
+
+def ensure_parameters_for_all_n(params, n_values, fitness_mode):
+    """Ensure optimal GA parameters are available for every requested N."""
+    missing = [n for n in n_values if n not in params]
+    if missing:
+        missing_str = ', '.join(str(n) for n in missing)
+        raise ValueError(
+            f"Missing GA parameters for fitness {fitness_mode} and N values: {missing_str}. "
+            "Run tuning or update config.json."
+        )
+
+
+def apply_configuration(config_path, fitness_filter=None):
+    """Load configuration from JSON and apply overrides to module globals."""
+
+    config_mgr = ConfigManager(config_path)
+
+    experiment_settings = config_mgr.get_experiment_settings()
+    if experiment_settings:
+        global N_VALUES, RUNS_SA_FINAL, RUNS_GA_FINAL, RUNS_BT_FINAL, RUNS_GA_TUNING, OUT_DIR
+
+        N_values_cfg = experiment_settings.get("N_values", N_VALUES)
+        N_VALUES = [int(n) for n in N_values_cfg]
+        RUNS_SA_FINAL = int(experiment_settings.get("runs_sa_final", RUNS_SA_FINAL))
+        RUNS_GA_FINAL = int(experiment_settings.get("runs_ga_final", RUNS_GA_FINAL))
+        RUNS_BT_FINAL = int(experiment_settings.get("runs_bt_final", RUNS_BT_FINAL))
+        RUNS_GA_TUNING = int(experiment_settings.get("runs_ga_tuning", RUNS_GA_TUNING))
+        OUT_DIR = experiment_settings.get("output_dir", OUT_DIR)
+
+    timeout_settings = config_mgr.get_timeout_settings()
+    if timeout_settings:
+        set_timeouts(
+            bt_timeout=timeout_settings.get("bt_time_limit", BT_TIME_LIMIT),
+            sa_timeout=timeout_settings.get("sa_time_limit", SA_TIME_LIMIT),
+            ga_timeout=timeout_settings.get("ga_time_limit", GA_TIME_LIMIT),
+            experiment_timeout=timeout_settings.get("experiment_timeout", EXPERIMENT_TIMEOUT),
+        )
+
+    tuning_grid = config_mgr.get_tuning_grid()
+    if tuning_grid:
+        global POP_MULTIPLIERS, GEN_MULTIPLIERS, PM_VALUES, PC_FIXED, TOURNAMENT_SIZE_FIXED
+
+        POP_MULTIPLIERS = [int(v) for v in tuning_grid.get("pop_multipliers", POP_MULTIPLIERS)]
+        GEN_MULTIPLIERS = [int(v) for v in tuning_grid.get("gen_multipliers", GEN_MULTIPLIERS)]
+        PM_VALUES = [float(v) for v in tuning_grid.get("pm_values", PM_VALUES)]
+        PC_FIXED = float(tuning_grid.get("pc_fixed", PC_FIXED))
+        TOURNAMENT_SIZE_FIXED = int(tuning_grid.get("tournament_size_fixed", TOURNAMENT_SIZE_FIXED))
+
+    fitness_modes_cfg = [mode.upper() for mode in config_mgr.get_fitness_modes()]
+    if not fitness_modes_cfg:
+        fitness_modes_cfg = ["F1"]
+
+    if fitness_filter:
+        requested = {mode.upper() for mode in fitness_filter}
+        unknown = requested.difference(set(fitness_modes_cfg))
+        if unknown:
+            raise ValueError(
+                "Unknown fitness modes requested: " + ', '.join(sorted(unknown))
+            )
+        selected_modes = [mode for mode in fitness_modes_cfg if mode in requested]
+    else:
+        selected_modes = fitness_modes_cfg
+
+    if not selected_modes:
+        raise ValueError("No fitness modes selected after applying filters.")
+
+    global FITNESS_MODES
+    FITNESS_MODES = selected_modes
+
+    return config_mgr, selected_modes
+
+
+def load_optimal_parameters(fitness_mode, config_mgr, n_values):
+    """Fetch and validate optimal GA parameters from the configuration file."""
+    if config_mgr is None:
+        raise ValueError("Config manager is required when skip-tuning is enabled.")
+
+    params = normalize_optimal_parameters(config_mgr.get_optimal_parameters(fitness_mode))
+    ensure_parameters_for_all_n(params, n_values, fitness_mode)
+    return params
+
 # ======================================================
 # PARAMETRI GLOBALI
 # ======================================================
@@ -161,10 +291,10 @@ def set_timeouts(bt_timeout=None, sa_timeout=30.0, ga_timeout=60.0, experiment_t
     EXPERIMENT_TIMEOUT = experiment_timeout
     
     print("Timeout settings configured:")
-    print(f"   - BT: {BT_TIME_LIMIT}s" if BT_TIME_LIMIT else "   - BT: illimitato")
-    print(f"   - SA: {SA_TIME_LIMIT}s" if SA_TIME_LIMIT else "   - SA: illimitato")
-    print(f"   - GA: {GA_TIME_LIMIT}s" if GA_TIME_LIMIT else "   - GA: illimitato")
-    print(f"   - Esperimento: {EXPERIMENT_TIMEOUT}s" if EXPERIMENT_TIMEOUT else "   - Esperimento: illimitato")
+    print(f"   - BT: {BT_TIME_LIMIT}s" if BT_TIME_LIMIT else "   - BT: unlimited")
+    print(f"   - SA: {SA_TIME_LIMIT}s" if SA_TIME_LIMIT else "   - SA: unlimited")
+    print(f"   - GA: {GA_TIME_LIMIT}s" if GA_TIME_LIMIT else "   - GA: unlimited")
+    print(f"   - Experiment: {EXPERIMENT_TIMEOUT}s" if EXPERIMENT_TIMEOUT else "   - Experiment: unlimited")
 
 # Directory di output per CSV e grafici
 OUT_DIR = "results_nqueens_tuning"
@@ -172,7 +302,6 @@ OUT_DIR = "results_nqueens_tuning"
 # Griglia di tuning per il GA - definisce lo spazio di ricerca parametri
 POP_MULTIPLIERS = [4, 8, 16]       # pop_size ≈ 4N, 8N, 16N - popolazione scala con N
 GEN_MULTIPLIERS = [30, 50, 80]     # max_gen ≈ 30N, 50N, 80N - generazioni scala con N
-RUNS_GA_TUNING = 5                 # per non morire di tempi
 PM_VALUES = [0.05, 0.1, 0.15]        # probabilità mutazione - range tipico per GA
 PC_FIXED = 0.8                     # probabilità crossover fissa (valore standard)
 TOURNAMENT_SIZE_FIXED = 3          # dimensione torneo per selezione
@@ -182,544 +311,11 @@ FITNESS_MODES = ["F1", "F2", "F3", "F4", "F5", "F6"]
 
 # Numero di processi per il parallelismo
 # Lascia un core libero per il sistema operativo
-NUM_PROCESSES = multiprocessing.cpu_count() - 1
+NUM_PROCESSES = max(1, multiprocessing.cpu_count() - 1)
 
 
 # ======================================================
-# 1. Utility comuni
-# ======================================================
-
-def conflicts(board):
-    """
-    Versione O(N): conta le coppie di regine in conflitto usando
-    contatori per righe e diagonali.
-    
-    Args:
-        board: lista dove board[col] = row (posizione regine)
-    
-    Returns:
-        int: numero totale di coppie di regine in conflitto
-        
-    Note:
-        - Usa Counter per efficienza O(N) invece di O(N²)
-        - Calcola conflitti come combinazioni C(k,2) per ogni gruppo
-    """
-    n = len(board)
-    row_count = Counter()    # conta regine per riga
-    diag1 = Counter()        # diagonale principale (r-c costante)
-    diag2 = Counter()        # diagonale secondaria (r+c costante)
-
-    # Conta occupazioni per ogni riga e diagonale
-    for c, r in enumerate(board):
-        row_count[r] += 1
-        diag1[r - c] += 1    # diagonale ↘ (top-left to bottom-right)
-        diag2[r + c] += 1    # diagonale ↙ (top-right to bottom-left)
-
-    def pairs(counter):
-        """Calcola numero di coppie in conflitto per un contatore"""
-        tot = 0
-        for cnt in counter.values():
-            if cnt > 1:
-                tot += cnt * (cnt - 1) // 2  # combinazioni C(cnt,2)
-        return tot
-
-    # Somma conflitti da righe e entrambe le diagonali
-    row_conf = pairs(row_count)
-    d1_conf  = pairs(diag1)
-    d2_conf  = pairs(diag2)
-
-    return row_conf + d1_conf + d2_conf
-
-def conflicts_on2(board):
-    """
-    Versione O(N²): conta il numero di coppie di regine in conflitto.
-    Mantenuta per confronto/debugging con la versione ottimizzata.
-    
-    Args:
-        board: lista dove board[i] = riga della regina nella colonna i
-        
-    Returns:
-        int: numero di coppie di regine in conflitto
-    """
-    n = len(board)
-    c = 0
-    # Confronta ogni coppia di regine
-    for i in range(n):
-        for j in range(i + 1, n):
-            # Stesso riga o stessa diagonale
-            if board[i] == board[j] or abs(board[i] - board[j]) == abs(i - j):
-                c += 1
-    return c
-
-
-# ======================================================
-# 2. Funzioni di fitness F1 ... F6 per il GA
-# ======================================================
-
-def fitness_f1(ind):
-    """
-    F1: fitness = -conflitti.
-    
-    Approccio diretto: minimizza i conflitti trasformandoli in fitness negativa.
-    Più conflitti = fitness peggiore (più negativa).
-    """
-    return -conflicts(ind)
-
-
-def fitness_f2(ind):
-    """
-    F2: numero di coppie NON in conflitto.
-    
-    Approccio positivo: conta le coppie di regine che NON si attaccano.
-    Soluzione ottima ha tutte le C(N,2) coppie non in conflitto.
-    """
-    n = len(ind)
-    max_pairs = n * (n - 1) // 2  # numero massimo di coppie possibili
-    c = conflicts(ind)
-    return max_pairs - c
-
-
-def fitness_f3(ind):
-    """
-    F3: penalità lineare su cluster di regine sulle stesse diagonali.
-    
-    Diverso da F1/F2: penalizza specificamente i cluster sulle diagonali
-    con penalità lineare C(cnt,2). Incentiva distribuzione uniforme.
-    """
-    n = len(ind)
-    diag1 = Counter()  # diagonale principale
-    diag2 = Counter()  # diagonale secondaria
-    
-    # Conta regine per diagonale
-    for c, r in enumerate(ind):
-        diag1[r - c] += 1
-        diag2[r + c] += 1
-
-    penalty = 0
-    # Penalità lineare per cluster sulle diagonali
-    for cnt in diag1.values():
-        if cnt > 1:
-            penalty += cnt * (cnt - 1) // 2  # C(cnt,2)
-    for cnt in diag2.values():
-        if cnt > 1:
-            penalty += cnt * (cnt - 1) // 2
-
-    max_pairs = n * (n - 1) // 2
-    return max_pairs - penalty
-
-
-def fitness_f4(ind):
-    """
-    F4: F2 meno i conflitti della regina con più conflitti.
-    
-    Penalizza soluzioni sbilanciate dove una regina ha troppi conflitti.
-    Incentiva soluzioni più equilibrate.
-    """
-    n = len(ind)
-    max_pairs = n * (n - 1) // 2
-    total_conf = conflicts(ind)
-    base = max_pairs - total_conf  # base F2
-
-    # Trova la regina con più conflitti
-    max_conf_for_queen = 0
-    for c in range(n):
-        conf_q = 0
-        # Conta conflitti per regina in colonna c
-        for j in range(n):
-            if j == c:
-                continue
-            if ind[j] == ind[c] or abs(ind[j] - ind[c]) == abs(j - c):
-                conf_q += 1
-        if conf_q > max_conf_for_queen:
-            max_conf_for_queen = conf_q
-
-    return base - max_conf_for_queen
-
-
-def fitness_f5(ind):
-    """
-    F5: penalità QUADRATICA per cluster sulle diagonali.
-    
-    Simile a F3 ma con penalizzazione più severa (k² invece di C(k,2)).
-    Scoraggia fortemente la formazione di grandi cluster.
-    """
-    n = len(ind)
-    diag1 = Counter()
-    diag2 = Counter()
-    
-    for c, r in enumerate(ind):
-        diag1[r - c] += 1
-        diag2[r + c] += 1
-
-    penalty = 0
-    # Penalità quadratica per cluster
-    for cnt in diag1.values():
-        if cnt > 1:
-            penalty += cnt ** 2  # penalità quadratica
-    for cnt in diag2.values():
-        if cnt > 1:
-            penalty += cnt ** 2
-
-    max_pairs = n * (n - 1) // 2
-    return max_pairs - penalty
-
-
-def fitness_f6(ind, lam=0.3):
-    """
-    F6: trasformazione esponenziale dei conflitti.
-    
-    fitness = exp(-lambda * conflicts)
-    Trasformazione non-lineare che amplifica le differenze tra soluzioni
-    con pochi conflitti. Lambda controlla la "pendenza".
-    """
-    c = conflicts(ind)
-    return math.exp(-lam * c)
-
-
-def get_fitness_function(mode):
-    """
-    Factory function: ritorna la funzione di fitness corrispondente al mode.
-    
-    Args:
-        mode: stringa che identifica la fitness ("F1", "F2", etc.)
-        
-    Returns:
-        function: funzione di fitness corrispondente
-        
-    Raises:
-        ValueError: se il mode non è riconosciuto
-    """
-    if mode == "F1":
-        return fitness_f1
-    elif mode == "F2":
-        return fitness_f2
-    elif mode == "F3":
-        return fitness_f3
-    elif mode == "F4":
-        return fitness_f4
-    elif mode == "F5":
-        return fitness_f5
-    elif mode == "F6":
-        return lambda ind: fitness_f6(ind, lam=0.3)  # lambda fissato
-    else:
-        raise ValueError(f"fitness_mode sconosciuto: {mode}")
-
-
-# ======================================================
-# 3. Backtracking iterativo (prima soluzione)
-# ======================================================
-
-def bt_nqueens_first(N, time_limit=None):
-    """
-    Backtracking iterativo per trovare UNA sola soluzione delle N-Regine.
-    
-    Implementazione ottimizzata:
-    - Iterativa (no ricorsione) per evitare stack overflow
-    - Tracking veloce dei conflitti con array booleani
-    - Conta i nodi esplorati per analisi di complessità
-    - Time limit opzionale per evitare esecuzioni infinite
-    
-    Args:
-    N: dimensione scacchiera (N x N)
-        time_limit: limite tempo in secondi (None = illimitato)
-        
-    Returns:
-        tuple: (soluzione, nodi_esplorati, tempo_esecuzione)
-        - soluzione: lista [row0, row1, ..., rowN-1] o None se non trovata
-        - nodi_esplorati: numero di posizionamenti tentati
-        - tempo_esecuzione: secondi di esecuzione
-    """
-    # Stato della ricerca
-    pos = [-1] * N                           # posizione regine: pos[col] = row
-    row_used = [False] * N                   # righe occupate
-    diag1_used = [False] * (2 * N - 1)      # diagonali principali occupate
-    diag2_used = [False] * (2 * N - 1)      # diagonali secondarie occupate
-
-    col = 0          # colonna corrente
-    row = 0          # riga corrente da tentare
-    nodes = 0        # contatore nodi esplorati
-    start = perf_counter()
-
-    # Ciclo principale del backtracking
-    while col >= 0 and col < N:
-        # Controlla time limit
-        if time_limit is not None and (perf_counter() - start) > time_limit:
-            return None, nodes, perf_counter() - start
-
-        placed = False
-        
-        # Prova tutte le righe disponibili per la colonna corrente
-        while row < N and not placed:
-            nodes += 1  # conta ogni tentativo di posizionamento
-            
-            # Controlla se la posizione (row, col) è valida
-            if not row_used[row]:
-                # Calcola indici diagonali
-                d1 = row - col + (N - 1)  # diagonale principale ↘
-                d2 = row + col            # diagonale secondaria ↙
-                
-                # Se entrambe le diagonali sono libere
-                if not diag1_used[d1] and not diag2_used[d2]:
-                    # Posiziona la regina
-                    pos[col] = row
-                    row_used[row] = True
-                    diag1_used[d1] = True
-                    diag2_used[d2] = True
-                    placed = True
-
-                    # Se abbiamo posizionato tutte le regine
-                    if col == N - 1:
-                        return pos.copy(), nodes, perf_counter() - start
-                    else:
-                        # Passa alla colonna successiva
-                        col += 1
-                        row = 0
-                else:
-                    row += 1  # prova riga successiva
-            else:
-                row += 1  # prova riga successiva
-
-        # Se non è stato possibile posizionare in questa colonna
-        if not placed:
-            # Backtrack: rimuovi regina dalla colonna precedente
-            col -= 1
-            if col >= 0:
-                # Ripristina stato precedente
-                prev_row = pos[col]
-                pos[col] = -1
-                row_used[prev_row] = False
-                d1 = prev_row - col + (N - 1)
-                d2 = prev_row + col
-                diag1_used[d1] = False
-                diag2_used[d2] = False
-                row = prev_row + 1  # riprendi dalla riga successiva
-
-    # Nessuna soluzione trovata
-    return None, nodes, perf_counter() - start
-
-
-# ======================================================
-# 4. Simulated Annealing (SA)
-# ======================================================
-
-def sa_nqueens(N, max_iter=20000, T0=1.0, alpha=0.995, time_limit=None):
-    """
-    Simulated Annealing per il problema delle N-Regine.
-    
-    Algoritmo:
-    1. Parte da configurazione casuale
-    2. Ad ogni iterazione sposta una regina casuale
-    3. Accetta la mossa secondo criterio di Metropolis
-    4. Diminuisce temperatura geometricamente
-    
-    Args:
-        N: dimensione scacchiera
-        max_iter: numero massimo di iterazioni
-        T0: temperatura iniziale (alta = più esplorazione)
-        alpha: fattore raffreddamento (0 < alpha < 1, tipicamente ~0.995)
-        time_limit: limite tempo in secondi (None = illimitato)
-        
-    Returns:
-        tuple: (successo, iterazioni, tempo, migliori_conflitti, valutazioni_fitness, timeout)
-        - successo: True se trovata soluzione (0 conflitti)
-        - iterazioni: numero iterazioni eseguite
-        - tempo: secondi di esecuzione
-        - migliori_conflitti: minor numero conflitti raggiunto
-        - valutazioni_fitness: numero chiamate funzione conflicts()
-        - timeout: True se interrotto per timeout
-    """
-    # Inizializzazione casuale: una regina per colonna
-    board = [random.randrange(N) for _ in range(N)]
-    cur_cost = conflicts(board)     # conflitti configurazione corrente
-    best_cost = cur_cost           # miglior configurazione vista
-    fitness_evals = 1              # contatore valutazioni fitness
-    start = perf_counter()
-
-    # Controlla se già abbiamo la soluzione
-    if cur_cost == 0:
-        return True, 0, perf_counter() - start, 0, fitness_evals, False
-
-    T = T0  # temperatura corrente
-    
-    # Ciclo principale SA
-    for it in range(1, max_iter + 1):
-        # Controllo timeout 
-        if time_limit is not None and (perf_counter() - start) > time_limit:
-            return False, it, perf_counter() - start, best_cost, fitness_evals, True
-        
-        # Genera vicino: sposta una regina casuale
-        c = random.randrange(N)        # colonna casuale
-        old_row = board[c]             # riga precedente
-        new_row = random.randrange(N)  # nuova riga casuale
-        
-        # Assicurati che sia diversa (vero move)
-        while new_row == old_row:
-            new_row = random.randrange(N)
-            
-        board[c] = new_row
-
-        # Valuta nuova configurazione
-        new_cost = conflicts(board)
-        fitness_evals += 1
-        delta = new_cost - cur_cost  # differenza costi
-
-        # Criterio di accettazione Metropolis
-        if delta <= 0 or random.random() < math.exp(-delta / T):
-            # Accetta la mossa
-            cur_cost = new_cost
-            if cur_cost < best_cost:
-                best_cost = cur_cost
-        else:
-            # Rifiuta la mossa: ripristina stato precedente
-            board[c] = old_row
-
-        # Controlla se soluzione trovata
-        if cur_cost == 0:
-            return True, it, perf_counter() - start, 0, fitness_evals, False
-
-        # Raffreddamento geometrico
-        T *= alpha
-
-    # Max iterazioni raggiunte senza trovare soluzione
-    return False, max_iter, perf_counter() - start, best_cost, fitness_evals, False
-
-
-# ======================================================
-# 5. Algoritmo Genetico (GA) base
-# ======================================================
-
-def ga_nqueens(
-    N,
-    pop_size=100,
-    max_gen=1000,
-    pc=0.8,
-    pm=0.1,
-    tournament_size=3,
-    fitness_mode="F1",
-    time_limit=None,
-):
-    """
-    Algoritmo Genetico per il problema delle N-Regine.
-    
-    Implementazione standard con:
-    - Rappresentazione: lista di N interi (pos. regine)
-    - Selezione: tournament selection
-    - Crossover: single-point crossover
-    - Mutazione: flip random
-    - Elitismo: preserva sempre il migliore
-    
-    Args:
-        N: dimensione scacchiera
-        pop_size: dimensione popolazione
-        max_gen: numero massimo generazioni
-        pc: probabilità crossover (0.0-1.0)
-        pm: probabilità mutazione (0.0-1.0)
-        tournament_size: dimensione torneo per selezione
-        fitness_mode: stringa funzione fitness ("F1", "F2", etc.)
-        time_limit: limite tempo in secondi (None = illimitato)
-        
-    Returns:
-        tuple: (successo, generazioni, tempo, migliori_conflitti, valutazioni_fitness, timeout)
-        - successo: True se trovata soluzione (0 conflitti)
-        - generazioni: numero generazioni eseguite
-        - tempo: secondi di esecuzione
-        - migliori_conflitti: minor numero conflitti nel migliore individuo
-        - valutazioni_fitness: numero totale chiamate fitness
-        - timeout: True se interrotto per timeout
-    """
-    fit_fn = get_fitness_function(fitness_mode)
-
-    # Inizializzazione popolazione casuale
-    pop = [[random.randrange(N) for _ in range(N)] for _ in range(pop_size)]
-    fitness = [fit_fn(ind) for ind in pop]
-    fitness_evals = pop_size
-
-    # Trova migliore iniziale
-    best_idx = max(range(pop_size), key=lambda i: fitness[i])
-    best_ind = pop[best_idx][:]
-    best_conf = conflicts(best_ind)  # numero conflitti reale (non fitness)
-    start = perf_counter()
-
-    # Controlla se già risolto
-    if best_conf == 0:
-        return True, 0, perf_counter() - start, 0, fitness_evals, False
-
-    def tournament():
-        """Selezione a torneo: sceglie il migliore tra tournament_size individui"""
-        best_i = None
-        for _ in range(tournament_size):
-            i = random.randrange(pop_size)
-            if best_i is None or fitness[i] > fitness[best_i]:
-                best_i = i
-        return best_i
-
-    gen = 0
-    
-    # Ciclo evolutivo principale
-    while gen < max_gen:
-        # Controllo timeout
-        if time_limit is not None and (perf_counter() - start) > time_limit:
-            return False, gen, perf_counter() - start, best_conf, fitness_evals, True
-            
-        gen += 1
-        new_pop = []
-
-        # Elitismo: mantieni sempre il migliore
-        new_pop.append(best_ind[:])
-
-        # Genera nuova popolazione
-        while len(new_pop) < pop_size:
-            # Selezione genitori
-            p1 = pop[tournament()]
-            p2 = pop[tournament()]
-
-            # Crossover single-point
-            if random.random() < pc:
-                cut = random.randrange(1, N)  # punto taglio [1, N-1]
-                child1 = p1[:cut] + p2[cut:]
-                child2 = p2[:cut] + p1[cut:]
-            else:
-                # Nessun crossover: copia genitori
-                child1 = p1[:]
-                child2 = p2[:]
-
-            # Mutazione
-            def mutate(ind):
-                """Mutazione: flip random di una posizione"""
-                if random.random() < pm:
-                    c = random.randrange(N)
-                    ind[c] = random.randrange(N)
-
-            mutate(child1)
-            mutate(child2)
-
-            # Aggiungi figli alla nuova popolazione
-            new_pop.append(child1)
-            if len(new_pop) < pop_size:
-                new_pop.append(child2)
-
-        # Sostituisci popolazione
-        pop = new_pop
-        fitness = [fit_fn(ind) for ind in pop]
-        fitness_evals += pop_size
-
-        # Aggiorna migliore basandoti sui conflitti reali
-        for ind in pop:
-            c = conflicts(ind)
-            if c < best_conf:
-                best_conf = c
-                best_ind = ind[:]
-
-        # Controlla se soluzione trovata
-        if best_conf == 0:
-            return True, gen, perf_counter() - start, 0, fitness_evals, False
-
-    # Max generazioni raggiunte
-    return False, max_gen, perf_counter() - start, best_conf, fitness_evals, False
-
-
-# ======================================================
-# 6. Tuning dei parametri GA per un singolo (N, fitness_mode)
+# GA: Tuning dei parametri per un singolo (N, fitness_mode)
 # ======================================================
 
 def tune_ga_for_N(
@@ -822,7 +418,7 @@ def tune_ga_for_N(
 
 
 # ======================================================
-# 6.5. Funzioni per parallelizzazione
+# GA: Funzioni di supporto per la parallelizzazione
 # ======================================================
 
 def run_single_ga_experiment(params):
@@ -880,7 +476,11 @@ def run_with_timeout(func, args, timeout):
     try:
         with ProcessPoolExecutor(max_workers=1) as executor:
             future = executor.submit(func, args)
-            result = future.result(timeout=timeout)
+            try:
+                result = future.result(timeout=timeout)
+            except KeyboardInterrupt:
+                executor.shutdown(cancel_futures=True)
+                raise
             return True, result
     except Exception as e:
         print(f"WARNING: Timeout or error during execution: {e}")
@@ -906,7 +506,11 @@ def test_parameter_combination_parallel(params):
     
     # Esegui i run in parallelo (limitato da NUM_PROCESSES)
     with ProcessPoolExecutor(max_workers=min(NUM_PROCESSES, runs_tuning)) as executor:
-        results = list(executor.map(run_single_ga_experiment, run_params))
+        try:
+            results = list(executor.map(run_single_ga_experiment, run_params))
+        except KeyboardInterrupt:
+            executor.shutdown(cancel_futures=True)
+            raise
     
     # Calcola statistiche aggregate
     successes = 0
@@ -978,7 +582,11 @@ def tune_ga_for_N_parallel(
     # Testa tutte le combinazioni in parallelo usando ProcessPoolExecutor
     print(f"  Esecuzione parallela con {NUM_PROCESSES} processi...")
     with ProcessPoolExecutor(max_workers=NUM_PROCESSES) as executor:
-        candidates = list(executor.map(test_parameter_combination_parallel, param_combinations))
+        try:
+            candidates = list(executor.map(test_parameter_combination_parallel, param_combinations))
+        except KeyboardInterrupt:
+            executor.shutdown(cancel_futures=True)
+            raise
     
     # Seleziona la migliore combinazione usando stesso criterio della versione sequenziale
     best = None
@@ -1065,7 +673,11 @@ def tune_all_fitness_parallel(
     start_time = perf_counter()
     
     with ProcessPoolExecutor(max_workers=min(NUM_PROCESSES, len(fitness_modes))) as executor:
-        results = list(executor.map(tune_single_fitness, tuning_params))
+        try:
+            results = list(executor.map(tune_single_fitness, tuning_params))
+        except KeyboardInterrupt:
+            executor.shutdown(cancel_futures=True)
+            raise
     
     elapsed_time = perf_counter() - start_time
     
@@ -1081,7 +693,7 @@ def tune_all_fitness_parallel(
 
 
 # ======================================================
-# 7. Esperimenti finali con parametri ottimali GA
+# Esperimenti finali con parametri GA ottimizzati
 # ======================================================
 
 def run_experiments_with_best_ga(
@@ -1091,6 +703,7 @@ def run_experiments_with_best_ga(
     bt_time_limit,
     fitness_mode,
     best_ga_params_for_N,
+    progress_label=None,
 ):
     """
     Esegue esperimenti finali con parametri GA ottimali (versione sequenziale).
@@ -1118,7 +731,11 @@ def run_experiments_with_best_ga(
     """
     results = {"BT": {}, "SA": {}, "GA": {}}
 
-    for N in N_values:
+    progress = ProgressPrinter(len(N_values), progress_label) if progress_label else None
+
+    for index, N in enumerate(N_values, start=1):
+        if progress:
+            progress.update(index, f"N={N}")
         print(f"=== (Final) N = {N}, GA fitness {fitness_mode} ===")
 
         # ----- BACKTRACKING (deterministico) -----
@@ -1272,6 +889,7 @@ def run_experiments_with_best_ga_parallel(
     bt_time_limit,
     fitness_mode,
     best_ga_params_for_N,
+    progress_label=None,
 ):
     """
     Versione parallela di run_experiments_with_best_ga.
@@ -1296,7 +914,11 @@ def run_experiments_with_best_ga_parallel(
     """
     results = {"BT": {}, "SA": {}, "GA": {}}
 
-    for N in N_values:
+    progress = ProgressPrinter(len(N_values), progress_label) if progress_label else None
+
+    for index, N in enumerate(N_values, start=1):
+        if progress:
+            progress.update(index, f"N={N}")
         print(f"=== (Final Parallel) N = {N}, GA fitness {fitness_mode} ===")
 
         # ----- BACKTRACKING (sempre seriale, è veloce) -----
@@ -1316,7 +938,11 @@ def run_experiments_with_best_ga_parallel(
         
         # Esegui tutti i run SA in parallelo
         with ProcessPoolExecutor(max_workers=NUM_PROCESSES) as executor:
-            sa_raw_results = list(executor.map(run_single_sa_experiment, sa_params))
+            try:
+                sa_raw_results = list(executor.map(run_single_sa_experiment, sa_params))
+            except KeyboardInterrupt:
+                executor.shutdown(cancel_futures=True)
+                raise
         
         # Converte risultati in formato strutturato
         sa_runs = []
@@ -1385,7 +1011,11 @@ def run_experiments_with_best_ga_parallel(
         
         # Esegui tutti i run GA in parallelo
         with ProcessPoolExecutor(max_workers=NUM_PROCESSES) as executor:
-            ga_raw_results = list(executor.map(run_single_ga_experiment, ga_params))
+            try:
+                ga_raw_results = list(executor.map(run_single_ga_experiment, ga_params))
+            except KeyboardInterrupt:
+                executor.shutdown(cancel_futures=True)
+                raise
         
         # Converte risultati in formato strutturato
         ga_runs = []
@@ -1450,7 +1080,7 @@ def run_experiments_with_best_ga_parallel(
 
 
 # ======================================================
-# 8. Salvataggio CSV e grafici
+# Salvataggio CSV e grafici
 # ======================================================
 
 def save_results_to_csv(results, N_values, fitness_mode, out_dir):
@@ -2189,61 +1819,72 @@ def plot_and_save(results, N_values, fitness_mode, out_dir):
 # 9. Main: versione parallela del tuning + esperimenti finali
 # ======================================================
 
-def main_sequential():
-    """Main originale sequenziale (mantenuto per confronto)"""
-    os.makedirs(OUT_DIR, exist_ok=True)
+def main_sequential(fitness_modes=None, skip_tuning=False, config_mgr=None):
+    """Run the sequential pipeline for the selected fitness modes."""
 
-    for fitness_mode in FITNESS_MODES:
+    os.makedirs(OUT_DIR, exist_ok=True)
+    selected_fitness = fitness_modes or FITNESS_MODES
+
+    for fitness_mode in selected_fitness:
         print("\n============================================")
-        print(f"TUNING GA SEQUENZIALE per fitness mode: {fitness_mode}")
+        print(f"SEQUENTIAL PIPELINE FOR GA FITNESS {fitness_mode}")
         print("============================================")
 
-        # 1) Tuning per ogni N
-        best_ga_params_for_N = {}
-        tuning_csv = os.path.join(OUT_DIR, f"tuning_GA_{fitness_mode}_seq.csv")
-        with open(tuning_csv, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                "N",
-                "pop_size",
-                "max_gen",
-                "pm",
-                "pc",
-                "tournament_size",
-                "success_rate_tuning",
-                "avg_gen_success_tuning",
-            ])
+        if skip_tuning:
+            print("Skipping GA tuning and reusing parameters from configuration.")
+            best_ga_params_for_N = load_optimal_parameters(fitness_mode, config_mgr, N_VALUES)
+        else:
+            print("Starting GA tuning (sequential search).")
+            best_ga_params_for_N = {}
+            tuning_csv = os.path.join(OUT_DIR, f"tuning_GA_{fitness_mode}_seq.csv")
+            progress = ProgressPrinter(len(N_VALUES), f"Tuning GA-{fitness_mode}")
 
-            for N in N_VALUES:
-                print(f"Tuning GA: N = {N}, fitness = {fitness_mode}")
-                best = tune_ga_for_N(
-                    N,
-                    fitness_mode,
-                    POP_MULTIPLIERS,
-                    GEN_MULTIPLIERS,
-                    PM_VALUES,
-                    PC_FIXED,
-                    TOURNAMENT_SIZE_FIXED,
-                    runs_tuning=RUNS_GA_TUNING,
-                )
-                best_ga_params_for_N[N] = best
-                print("  Migliori parametri trovati:", best)
-
+            with open(tuning_csv, "w", newline="") as f:
+                writer = csv.writer(f)
                 writer.writerow([
-                    N,
-                    best["pop_size"],
-                    best["max_gen"],
-                    best["pm"],
-                    best["pc"],
-                    best["tournament_size"],
-                    best["success_rate"],
-                    best["avg_gen_success"],
+                    "N",
+                    "pop_size",
+                    "max_gen",
+                    "pm",
+                    "pc",
+                    "tournament_size",
+                    "success_rate_tuning",
+                    "avg_gen_success_tuning",
                 ])
 
-        print(f"Tuning export CSV: {tuning_csv}")
+                for index, N in enumerate(N_VALUES, start=1):
+                    progress.update(index, f"N={N}")
+                    print(f"Tuning GA: N = {N}, fitness = {fitness_mode}")
+                    best = tune_ga_for_N(
+                        N,
+                        fitness_mode,
+                        POP_MULTIPLIERS,
+                        GEN_MULTIPLIERS,
+                        PM_VALUES,
+                        PC_FIXED,
+                        TOURNAMENT_SIZE_FIXED,
+                        runs_tuning=RUNS_GA_TUNING,
+                    )
+                    best_ga_params_for_N[N] = best
+                    print("  Best parameters:", best)
 
-        # 2) Esperimenti finali con quei parametri ottimali
-        print(f"\nESPERIMENTI FINALI per GA fitness {fitness_mode} (parametri ottimali)")
+                    writer.writerow([
+                        N,
+                        best["pop_size"],
+                        best["max_gen"],
+                        best["pm"],
+                        best["pc"],
+                        best["tournament_size"],
+                        best["success_rate"],
+                        best["avg_gen_success"],
+                    ])
+
+            print(f"Tuning export CSV: {tuning_csv}")
+
+            if config_mgr:
+                config_mgr.save_optimal_parameters(fitness_mode, best_ga_params_for_N)
+
+        print(f"\nRunning final experiments for GA fitness {fitness_mode}")
         results = run_experiments_with_best_ga(
             N_VALUES,
             runs_sa=RUNS_SA_FINAL,
@@ -2251,103 +1892,110 @@ def main_sequential():
             bt_time_limit=BT_TIME_LIMIT,
             fitness_mode=fitness_mode,
             best_ga_params_for_N=best_ga_params_for_N,
+            progress_label=f"Experiments GA-{fitness_mode}",
         )
 
-        # 3) Salva CSV riassuntivo e grafici
         save_results_to_csv(results, N_VALUES, fitness_mode, OUT_DIR)
         save_raw_data_to_csv(results, N_VALUES, fitness_mode, OUT_DIR)
         save_logical_cost_analysis(results, N_VALUES, fitness_mode, OUT_DIR)
         plot_and_save(results, N_VALUES, fitness_mode, OUT_DIR)
 
-    print("\nTutti i tuning e gli esperimenti finali sequenziali sono completati.")
+    print("\nSequential pipeline completed.")
 
 
-def main_parallel():
-    """Main parallelo ottimizzato"""
+def main_parallel(fitness_modes=None, skip_tuning=False, config_mgr=None):
+    """Run the parallel pipeline for the selected fitness modes."""
+
     os.makedirs(OUT_DIR, exist_ok=True)
+    selected_fitness = fitness_modes or FITNESS_MODES
 
-    print(f"\nAVVIO VERSIONE PARALLELA (utilizzando {NUM_PROCESSES} processi)")
-    print(f"CPU disponibili: {multiprocessing.cpu_count()}")
-    print("Timeout configurati:")
-    print(f"   - BT: {BT_TIME_LIMIT}s" if BT_TIME_LIMIT else "   - BT: illimitato")
-    print(f"   - SA: {SA_TIME_LIMIT}s" if SA_TIME_LIMIT else "   - SA: illimitato")
-    print(f"   - GA: {GA_TIME_LIMIT}s" if GA_TIME_LIMIT else "   - GA: illimitato")
-    print(f"   - Esperimento: {EXPERIMENT_TIMEOUT}s" if EXPERIMENT_TIMEOUT else "   - Esperimento: illimitato")
+    print(f"\nStarting parallel pipeline with {NUM_PROCESSES} worker processes")
+    print(f"Available CPU cores: {multiprocessing.cpu_count()}")
+    print("Configured timeouts:")
+    print(f"   - BT: {BT_TIME_LIMIT}s" if BT_TIME_LIMIT else "   - BT: unlimited")
+    print(f"   - SA: {SA_TIME_LIMIT}s" if SA_TIME_LIMIT else "   - SA: unlimited")
+    print(f"   - GA: {GA_TIME_LIMIT}s" if GA_TIME_LIMIT else "   - GA: unlimited")
+    print(f"   - Experiment: {EXPERIMENT_TIMEOUT}s" if EXPERIMENT_TIMEOUT else "   - Experiment: unlimited")
 
     start_total = perf_counter()
-
-    # ======================================================
-    # FASE 1: TUNING PARALLELO PER TUTTE LE FITNESS
-    # ======================================================
-    print("\n" + "=" * 60)
-    print("FASE 1: TUNING GA PARALLELO PER TUTTE LE FITNESS")
-    print("=" * 60)
-
     all_best_params = {}
 
-    for fitness_mode in FITNESS_MODES:
-        print(f"\nTuning per fitness {fitness_mode}...")
-        fitness_start = perf_counter()
+    if skip_tuning:
+        print("\nSkipping GA tuning phase and loading parameters from configuration.")
+        for fitness_mode in selected_fitness:
+            all_best_params[fitness_mode] = load_optimal_parameters(fitness_mode, config_mgr, N_VALUES)
+    else:
+        print("\n" + "=" * 60)
+        print("PHASE 1: PARALLEL GA TUNING")
+        print("=" * 60)
 
-        best_ga_params_for_N = {}
-        tuning_csv = os.path.join(OUT_DIR, f"tuning_GA_{fitness_mode}.csv")
-        with open(tuning_csv, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                "N",
-                "pop_size",
-                "max_gen",
-                "pm",
-                "pc",
-                "tournament_size",
-                "success_rate_tuning",
-                "avg_gen_success_tuning",
-            ])
+        for fitness_mode in selected_fitness:
+            print(f"\nTuning fitness {fitness_mode}...")
+            fitness_start = perf_counter()
 
-            for N in N_VALUES:
-                print(f"  Tuning N = {N}...")
-                tuning_start = perf_counter()
+            best_ga_params_for_N = {}
+            tuning_csv = os.path.join(OUT_DIR, f"tuning_GA_{fitness_mode}.csv")
+            progress = ProgressPrinter(len(N_VALUES), f"Tuning GA-{fitness_mode}")
 
-                best = tune_ga_for_N_parallel(
-                    N,
-                    fitness_mode,
-                    POP_MULTIPLIERS,
-                    GEN_MULTIPLIERS,
-                    PM_VALUES,
-                    PC_FIXED,
-                    TOURNAMENT_SIZE_FIXED,
-                    runs_tuning=RUNS_GA_TUNING,
-                )
-
-                tuning_time = perf_counter() - tuning_start
-                best_ga_params_for_N[N] = best
-                print(f"     Completato in {tuning_time:.1f}s - Success rate: {best['success_rate']:.3f}")
-
+            with open(tuning_csv, "w", newline="") as f:
+                writer = csv.writer(f)
                 writer.writerow([
-                    N,
-                    best["pop_size"],
-                    best["max_gen"],
-                    best["pm"],
-                    best["pc"],
-                    best["tournament_size"],
-                    best["success_rate"],
-                    best["avg_gen_success"],
+                    "N",
+                    "pop_size",
+                    "max_gen",
+                    "pm",
+                    "pc",
+                    "tournament_size",
+                    "success_rate_tuning",
+                    "avg_gen_success_tuning",
                 ])
 
-        all_best_params[fitness_mode] = best_ga_params_for_N
+                for index, N in enumerate(N_VALUES, start=1):
+                    progress.update(index, f"N={N}")
+                    tuning_start = perf_counter()
 
-        fitness_time = perf_counter() - fitness_start
-        print(f"Tuning {fitness_mode} completato in {fitness_time:.1f}s - CSV: {tuning_csv}")
+                    best = tune_ga_for_N_parallel(
+                        N,
+                        fitness_mode,
+                        POP_MULTIPLIERS,
+                        GEN_MULTIPLIERS,
+                        PM_VALUES,
+                        PC_FIXED,
+                        TOURNAMENT_SIZE_FIXED,
+                        runs_tuning=RUNS_GA_TUNING,
+                    )
 
-    # ======================================================
-    # FASE 2: ESPERIMENTI FINALI PARALLELI PER TUTTE LE FITNESS
-    # ======================================================
+                    tuning_time = perf_counter() - tuning_start
+                    best_ga_params_for_N[N] = best
+                    print(
+                        f"     Completed in {tuning_time:.1f}s - Success rate: {best['success_rate']:.3f}"
+                    )
+
+                    writer.writerow([
+                        N,
+                        best["pop_size"],
+                        best["max_gen"],
+                        best["pm"],
+                        best["pc"],
+                        best["tournament_size"],
+                        best["success_rate"],
+                        best["avg_gen_success"],
+                    ])
+
+            all_best_params[fitness_mode] = best_ga_params_for_N
+
+            fitness_time = perf_counter() - fitness_start
+            print(f"Tuning {fitness_mode} completed in {fitness_time:.1f}s - CSV: {tuning_csv}")
+
+            if config_mgr:
+                config_mgr.save_optimal_parameters(fitness_mode, best_ga_params_for_N)
+
     print("\n" + "=" * 60)
-    print("FASE 2: ESPERIMENTI FINALI PARALLELI")
+    print("PHASE 2: PARALLEL FINAL EXPERIMENTS")
     print("=" * 60)
 
-    for fitness_mode in FITNESS_MODES:
-        print(f"\nEsperimenti finali per {fitness_mode}...")
+    for fitness_mode in selected_fitness:
+        print(f"\nFinal experiments for {fitness_mode}...")
         experiments_start = perf_counter()
 
         results = run_experiments_with_best_ga_parallel(
@@ -2357,38 +2005,34 @@ def main_parallel():
             bt_time_limit=BT_TIME_LIMIT,
             fitness_mode=fitness_mode,
             best_ga_params_for_N=all_best_params[fitness_mode],
+            progress_label=f"Experiments GA-{fitness_mode}",
         )
 
         experiments_time = perf_counter() - experiments_start
-        print(f"  Esperimenti completati in {experiments_time:.1f}s")
+        print(f"  Experiments completed in {experiments_time:.1f}s")
 
-        print("Generazione grafici e CSV finali...")
+        print("Generating charts and CSV reports...")
         save_results_to_csv(results, N_VALUES, fitness_mode, OUT_DIR)
         save_raw_data_to_csv(results, N_VALUES, fitness_mode, OUT_DIR)
         save_logical_cost_analysis(results, N_VALUES, fitness_mode, OUT_DIR)
         plot_and_save(results, N_VALUES, fitness_mode, OUT_DIR)
-        print(f"  Risultati salvati per {fitness_mode}")
+        print(f"  Results saved for {fitness_mode}")
 
     total_time = perf_counter() - start_total
-    print("\nPIPELINE PARALLELA COMPLETATA!")
-    print(f"Tempo totale: {total_time:.1f}s ({total_time/60:.1f} minuti)")
-    print(f"Fitness processate: {len(FITNESS_MODES)}")
-    print(f"Processi utilizzati: {NUM_PROCESSES}")
-    print("File generati per fitness:")
-    print("   - 1 CSV statistiche aggregate")
-    print("   - 3 CSV dati grezzi (SA, GA, BT)")
-    print("   - 1 CSV analisi costi logici")
-    print("   - 4 grafici (success rate, tempo, costi primari, evaluations)")
-    print("   - + 1 CSV tuning parametri GA")
-    print(f"Totale: {6 + 4} file per {len(FITNESS_MODES)} fitness = {(6 + 4) * len(FITNESS_MODES)} file")
+    print("\nParallel pipeline completed!")
+    print(f"Total time: {total_time:.1f}s ({total_time/60:.1f} minutes)")
+    print(f"Fitness processed: {len(selected_fitness)}")
+    print(f"Worker processes used: {NUM_PROCESSES}")
 
 
-def main_concurrent_tuning():
-    """Run concurrent tuning across all GA fitness functions with professional logging."""
+def main_concurrent_tuning(fitness_modes=None, skip_tuning=False, config_mgr=None):
+    """Run concurrent tuning and experiments across the selected fitness modes."""
+
     os.makedirs(OUT_DIR, exist_ok=True)
+    selected_fitness = fitness_modes or FITNESS_MODES
 
-    print("\nCONCURRENT TUNING FOR ALL FITNESS FUNCTIONS")
-    print(f"Fitness modes: {FITNESS_MODES}")
+    print("\nCONCURRENT TUNING FOR SELECTED FITNESS FUNCTIONS")
+    print(f"Fitness modes: {selected_fitness}")
     print(f"Processes: {NUM_PROCESSES}")
     print(f"Available CPU cores: {multiprocessing.cpu_count()}")
     print("Configured timeouts:")
@@ -2398,57 +2042,60 @@ def main_concurrent_tuning():
     print(f"   - Experiment: {EXPERIMENT_TIMEOUT}s" if EXPERIMENT_TIMEOUT else "   - Experiment: unlimited")
 
     start_total = perf_counter()
+    all_best_params = {fitness_mode: {} for fitness_mode in selected_fitness}
 
-    # ======================================================
-    # PHASE 1: PARALLEL TUNING FOR ALL FITNESS FUNCTIONS
-    # ======================================================
-    print("\n" + "="*70)
-    print("PHASE 1: PARALLEL TUNING FOR ALL FITNESS FUNCTIONS")
-    print("="*70)
+    if skip_tuning:
+        print("\nSkipping GA tuning phase and loading parameters from configuration.")
+        for fitness_mode in selected_fitness:
+            all_best_params[fitness_mode] = load_optimal_parameters(fitness_mode, config_mgr, N_VALUES)
+    else:
+        print("\n" + "=" * 70)
+        print("PHASE 1: PARALLEL TUNING FOR ALL FITNESS FUNCTIONS")
+        print("=" * 70)
 
-    all_best_params = {fitness_mode: {} for fitness_mode in FITNESS_MODES}
+        progress = ProgressPrinter(len(N_VALUES), "Concurrent GA tuning")
 
-    for N in N_VALUES:
-        print(f"\nParallel tuning for N = {N}")
-        print("-" * 50)
+        for index, N in enumerate(N_VALUES, start=1):
+            progress.update(index, f"N={N}")
+            print(f"\nParallel tuning for N = {N}")
+            print("-" * 50)
 
-        fitness_results = tune_all_fitness_parallel(
-            N,
-            FITNESS_MODES,
-            POP_MULTIPLIERS,
-            GEN_MULTIPLIERS,
-            PM_VALUES,
-            PC_FIXED,
-            TOURNAMENT_SIZE_FIXED,
-            runs_tuning=RUNS_GA_TUNING,
-        )
+            fitness_results = tune_all_fitness_parallel(
+                N,
+                selected_fitness,
+                POP_MULTIPLIERS,
+                GEN_MULTIPLIERS,
+                PM_VALUES,
+                PC_FIXED,
+                TOURNAMENT_SIZE_FIXED,
+                runs_tuning=RUNS_GA_TUNING,
+            )
 
-        for fitness_mode, best_params in fitness_results.items():
-            all_best_params[fitness_mode][N] = best_params
+            for fitness_mode, best_params in fitness_results.items():
+                all_best_params[fitness_mode][N] = best_params
 
-    for fitness_mode in FITNESS_MODES:
-        save_tuning_results(all_best_params[fitness_mode], fitness_mode, OUT_DIR)
+        for fitness_mode in selected_fitness:
+            save_tuning_results(all_best_params[fitness_mode], fitness_mode, OUT_DIR)
+            if config_mgr:
+                config_mgr.save_optimal_parameters(fitness_mode, all_best_params[fitness_mode])
 
-    # ======================================================
-    # PHASE 2: FINAL EXPERIMENTS WITH OPTIMAL PARAMETERS
-    # ======================================================
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("PHASE 2: FINAL EXPERIMENTS WITH OPTIMAL PARAMETERS")
-    print("="*70)
+    print("=" * 70)
 
     all_results = {}
 
-    for fitness_mode in FITNESS_MODES:
+    for fitness_mode in selected_fitness:
         print(f"\nFinal experiments GA-{fitness_mode}")
 
-        results = run_experiments_parallel(
+        results = run_experiments_with_best_ga_parallel(
             N_VALUES,
-            runs_bt=RUNS_BT_FINAL,
             runs_sa=RUNS_SA_FINAL,
             runs_ga=RUNS_GA_FINAL,
             bt_time_limit=BT_TIME_LIMIT,
             fitness_mode=fitness_mode,
             best_ga_params_for_N=all_best_params[fitness_mode],
+            progress_label=f"Experiments GA-{fitness_mode}",
         )
 
         all_results[fitness_mode] = results
@@ -2458,16 +2105,11 @@ def main_concurrent_tuning():
         save_logical_cost_analysis(results, N_VALUES, fitness_mode, OUT_DIR)
         plot_and_save(results, N_VALUES, fitness_mode, OUT_DIR)
 
-    print(f"Completed fitness {fitness_mode}")
-
-    # ======================================================
-    # PHASE 3: COMPARATIVE ANALYSIS AND ADVANCED CHARTS
-    # ======================================================
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("PHASE 3: COMPARATIVE ANALYSIS AND ADVANCED CHARTS")
-    print("="*70)
+    print("=" * 70)
 
-    for fitness in FITNESS_MODES:
+    for fitness in selected_fitness:
         print(f"  Comprehensive analysis for GA-F{fitness}...")
         plot_comprehensive_analysis(
             all_results[fitness],
@@ -2492,28 +2134,10 @@ def main_concurrent_tuning():
         raw_runs=None,
     )
 
-    print("  Parameter tuning analysis...")
-    plot_tuning_analysis(
-        {},  # TODO: collect tuning data if needed
-        FITNESS_MODES,
-        N_VALUES,
-        os.path.join(OUT_DIR, "tuning_analysis"),
-    )
-
     total_time = perf_counter() - start_total
-    print("\n" + "=" * 70)
-    print("CONCURRENT TUNING COMPLETE!")
+    print("\nConcurrent pipeline completed!")
     print(f"Total time: {total_time:.1f}s ({total_time/60:.1f} minutes)")
-    print(f"Fitness processed: {len(FITNESS_MODES)}")
-    print("Charts generated:")
-    print(f"   - 9 core charts x {len(FITNESS_MODES)} fitness = {9 * len(FITNESS_MODES)} charts")
-    print("   - 6 cross-fitness comparison charts")
-    print("   - 12+ statistical analysis charts")
-    print("   - 10+ tuning analysis charts")
-    print(f"Total charts: ~{9 * len(FITNESS_MODES) + 28} high-quality outputs")
-    print(f"CSV files: {4 * len(FITNESS_MODES)}")
-    print(f"Processes used: {NUM_PROCESSES}")
-    print("=" * 70)
+    print(f"Fitness processed: {len(selected_fitness)}")
 
 def plot_statistical_analysis(all_results, N_values, out_dir, raw_runs=None):
     """
@@ -2856,32 +2480,166 @@ def save_tuning_results(best_params_for_N, fitness_mode, out_dir):
     print(f"Risultati tuning GA-F{fitness_mode} salvati: {filename}")
 
 
+def run_quick_regression_tests():
+    """Run lightweight deterministic checks for BT, SA, GA, and CSV generation."""
+
+    print("Running quick regression tests (N=8)...")
+
+    random.seed(42)
+    solution, nodes, elapsed = bt_nqueens_first(8, time_limit=5.0)
+    if solution is None:
+        raise AssertionError("Backtracking failed to find a solution for N=8.")
+    print(f"  Backtracking: solution found with {nodes} nodes in {elapsed:.4f}s")
+
+    random.seed(42)
+    sa_success, _, sa_time, _, _, sa_timeout = sa_nqueens(
+        8, max_iter=5000, T0=1.0, alpha=0.995, time_limit=5.0
+    )
+    if not sa_success or sa_timeout:
+        raise AssertionError("Simulated Annealing did not succeed for N=8 with deterministic seed.")
+    print(f"  Simulated Annealing: success in {sa_time:.4f}s")
+
+    random.seed(42)
+    ga_success, _, ga_time, _, _, ga_timeout = ga_nqueens(
+        8,
+        pop_size=60,
+        max_gen=200,
+        pc=0.8,
+        pm=0.1,
+        tournament_size=3,
+        fitness_mode="F1",
+        time_limit=5.0,
+    )
+    if not ga_success or ga_timeout:
+        raise AssertionError("Genetic Algorithm did not succeed for N=8 with deterministic seed.")
+    print(f"  Genetic Algorithm: success in {ga_time:.4f}s")
+
+    best_ga_params_for_N = {
+        8: {
+            "pop_size": 60,
+            "max_gen": 200,
+            "pm": 0.1,
+            "pc": 0.8,
+            "tournament_size": 3,
+        }
+    }
+
+    results = run_experiments_with_best_ga(
+        [8],
+        runs_sa=3,
+        runs_ga=3,
+        bt_time_limit=5.0,
+        fitness_mode="F1",
+        best_ga_params_for_N=best_ga_params_for_N,
+        progress_label="Quick regression experiments",
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        save_results_to_csv(results, [8], "F1", tmpdir)
+        csv_path = Path(tmpdir) / "results_GA_F1_tuned.csv"
+        if not csv_path.exists() or csv_path.stat().st_size == 0:
+            raise AssertionError("Results CSV was not generated successfully during quick tests.")
+
+    print("Quick regression tests passed.")
+
+
 # Alias per compatibilità con il main
-def run_experiments_parallel(N_values, runs_bt, runs_sa, runs_ga, bt_time_limit, fitness_mode, best_ga_params_for_N):
+def run_experiments_parallel(
+    N_values,
+    runs_bt,
+    runs_sa,
+    runs_ga,
+    bt_time_limit,
+    fitness_mode,
+    best_ga_params_for_N,
+    progress_label=None,
+):
     """
     Wrapper per run_experiments_with_best_ga_parallel per compatibilità
     """
     return run_experiments_with_best_ga_parallel(
         N_values=N_values,
-        runs_bt=runs_bt,
         runs_sa=runs_sa,
         runs_ga=runs_ga,
         bt_time_limit=bt_time_limit,
         fitness_mode=fitness_mode,
-        best_ga_params_for_N=best_ga_params_for_N
+        best_ga_params_for_N=best_ga_params_for_N,
+        progress_label=progress_label,
     )
+
+
+def build_arg_parser():
+    """Create the CLI argument parser for the orchestrator."""
+
+    parser = argparse.ArgumentParser(
+        description="Run N-Queens tuning and experiment pipelines."
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["sequential", "parallel", "concurrent"],
+        default="concurrent",
+        help="Execution mode: sequential tuning, parallel tuning, or concurrent tuning (default).",
+    )
+    parser.add_argument(
+        "--fitness",
+        "-f",
+        action="append",
+        help="Filter fitness modes (accepts comma-separated values or multiple flags).",
+    )
+    parser.add_argument(
+        "--skip-tuning",
+        action="store_true",
+        help="Reuse stored GA parameters from config.json instead of running tuning.",
+    )
+    parser.add_argument(
+        "--config",
+        default="config.json",
+        help="Path to configuration file (default: config.json).",
+    )
+    parser.add_argument(
+        "--quick-test",
+        action="store_true",
+        help="Run quick regression tests (N=8) and exit.",
+    )
+    return parser
+
+
+def main():
+    """Entry point for CLI execution."""
+
+    parser = build_arg_parser()
+    args = parser.parse_args()
+    fitness_filter = parse_fitness_filters(args.fitness)
+
+    if args.quick_test:
+        run_quick_regression_tests()
+        return
+
+    try:
+        config_mgr, selected_fitness = apply_configuration(args.config, fitness_filter)
+    except FileNotFoundError as exc:
+        print(f"Configuration file not found: {exc}")
+        raise SystemExit(1) from exc
+    except ValueError as exc:
+        print(f"Configuration error: {exc}")
+        raise SystemExit(1) from exc
+
+    print(f"Selected fitness modes: {selected_fitness}")
+
+    try:
+        if args.mode == "sequential":
+            main_sequential(selected_fitness, skip_tuning=args.skip_tuning, config_mgr=config_mgr)
+        elif args.mode == "parallel":
+            main_parallel(selected_fitness, skip_tuning=args.skip_tuning, config_mgr=config_mgr)
+        else:
+            main_concurrent_tuning(selected_fitness, skip_tuning=args.skip_tuning, config_mgr=config_mgr)
+    except KeyboardInterrupt:
+        print("\nExecution interrupted by user. Cleaning up workers...")
+        raise SystemExit(130) from None
+    except ValueError as exc:
+        print(f"Execution error: {exc}")
+        raise SystemExit(1) from exc
+
+
 if __name__ == "__main__":
-    # Scelta tra le diverse modalità
-    import sys
-    
-    if len(sys.argv) > 1 and sys.argv[1] == "--sequential":
-        print("Esecuzione in modalità SEQUENZIALE")
-        main_sequential()
-    elif len(sys.argv) > 1 and sys.argv[1] == "--parallel":
-        print("Esecuzione in modalità PARALLELA (vecchia)")
-        main_parallel()
-    else:
-        print("Esecuzione in modalità TUNING CONTEMPORANEO (default)")
-        print("   Usa --sequential per la versione sequenziale")
-        print("   Usa --parallel per la versione parallela classica")
-        main_concurrent_tuning()
+    main()

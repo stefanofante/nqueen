@@ -1,6 +1,6 @@
 # N-Queens Problem: Comprehensive Algorithm Analysis
 
-This project provides a comprehensive comparative analysis of three fundamental algorithms for solving the N-Queens problem: **Backtracking**, **Simulated Annealing**, and **Genetic Algorithm**. The framework includes advanced statistical analysis, automated parameter tuning, and extensive visualization capabilities.
+This project provides a comprehensive comparative analysis of three fundamental algorithms for solving the N-Queens problem: **Backtracking**, **Simulated Annealing**, and **Genetic Algorithm**. The framework includes advanced statistical analysis, automated parameter tuning, and extensive visualization capabilities. The solver implementations now live inside the `nqueens/` package, while `algo.py` focuses on orchestration, reporting, and data export.
 
 ## Overview
 
@@ -414,10 +414,16 @@ results_nqueens_tuning/
 
 ### Core Components
 
+#### Solver Package (`nqueens/`)
+
+- Dedicated modules for backtracking, simulated annealing, and genetic algorithm
+- Shared fitness utilities and conflict counters centralized in the package
+- Keeps solver logic independent from orchestration, plotting, and export layers
+
 #### Statistical Engine
 
 - Advanced descriptive statistics calculation
-- Success/failure/timeout categorization  
+- Success/failure/timeout categorization
 - Confidence interval computation
 - Distribution analysis and outlier detection
 
@@ -476,6 +482,15 @@ pip install -r requirements.txt
 2. Add to `FITNESS_MODES` list
 3. Include in parameter tuning grid
 4. Update comparative analysis charts
+
+### Planned Improvements
+
+- Introduce a CLI flag that selects execution mode (`sequential`, `parallel`, `concurrent`) and filters the fitness functions to run
+- Load tuning parameters and board sizes from a JSON configuration file, updating it whenever new optimal parameters are found
+- Provide quick regression tests on a small instance (for example N = 8) that validate the three algorithms and the CSV export pipeline
+- Offer a flag to skip tuning when validated parameters already exist
+- Ensure every worker process terminates cleanly when receiving `Ctrl+C`
+- Surface a progress indicator so long experiments communicate their current stage
 
 ## License
 

@@ -1,6 +1,6 @@
 # N-Queens Algorithm Comparison: Advanced Analysis Wiki
 
-This wiki provides comprehensive documentation for the N-Queens comparative algorithm analysis project, featuring Backtracking (BT), Simulated Annealing (SA), and Genetic Algorithm (GA) implementations.
+This wiki provides comprehensive documentation for the N-Queens comparative algorithm analysis project, featuring Backtracking (BT), Simulated Annealing (SA), and Genetic Algorithm (GA) implementations. Solver code now lives inside the `nqueens/` package, while `algo.py` acts as the orchestrator for tuning, experimentation, and reporting.
 
 ## Overview
 
@@ -17,6 +17,15 @@ This project compares three fundamental approaches to solving the N-Queens probl
 * Define a **systematic parameter tuning procedure** for GA across different problem sizes
 * Achieve **performance optimizations** (O(N) conflicts calculation, multiprocessing, optional Numba acceleration)
 
+## Project Structure
+
+* `algo.py`: orchestration layer handling tuning pipelines, experiment scheduling, chart generation, and CSV export
+* `nqueens/backtracking.py`: iterative backtracking solver
+* `nqueens/simulated_annealing.py`: simulated annealing solver
+* `nqueens/genetic.py`: genetic algorithm driver
+* `nqueens/fitness.py`: shared GA fitness functions
+* `nqueens/utils.py`: conflict counters and shared utilities
+
 ## Mathematical Foundation
 
 ### Problem Definition
@@ -24,6 +33,7 @@ This project compares three fundamental approaches to solving the N-Queens probl
 The N-Queens problem requires placing N queens on an N x N chessboard such that no two queens attack each other.
 
 **Constraints:**
+
 * Row constraint: ≤ 1 queen per row
 * Column constraint: ≤ 1 queen per column  
 * Main diagonal constraint: ≤ 1 queen per diagonal (slope +1)
@@ -62,6 +72,7 @@ def conflicts(board):
 ```
 
 **Optimizations:**
+
 * Time complexity: O(N) instead of naive O(N²)
 * Uses combinatorics: conflicts = C(k,2) for each group of k queens
 * Memory efficient with Counter data structures
@@ -71,11 +82,13 @@ def conflicts(board):
 ### 1. Backtracking (BT)
 
 **Implementation Strategy:**
+
 * Iterative depth-first search using explicit stack
 * Avoids recursion overhead and stack overflow issues
 * Deterministic: always finds the lexicographically first solution
 
 **Key Features:**
+
 * **Completeness**: Guaranteed to find solution if one exists
 * **Optimality**: Finds optimal (valid) solution
 * **Determinism**: Reproducible results
@@ -113,17 +126,20 @@ def bt_nqueens_first(N, time_limit=None):
 ### 2. Simulated Annealing (SA)
 
 **Implementation Strategy:**
+
 * Start with random permutation solution
 * Iteratively improve using neighbor generation and probabilistic acceptance
 * Uses geometric cooling schedule for temperature control
 
 **Key Features:**
+
 * **Metaheuristic**: Probabilistic local search
 * **Escape Mechanism**: Can accept worse solutions to escape local optima
 * **Parameter Sensitivity**: Performance depends on cooling schedule and temperature
 * **Time Complexity**: O(max_iterations x N)
 
 **Neighbor Generation:**
+
 * **Swap Move**: Exchange positions of two randomly selected queens
 * Maintains permutation property automatically
 * Efficient O(1) neighbor generation
@@ -178,11 +194,13 @@ def sa_nqueens(N, max_iter=10000, initial_temp=100, cooling_rate=0.95, time_limi
 ### 3. Genetic Algorithm (GA)
 
 **Implementation Strategy:**
+
 * Population-based evolutionary optimization
 * Multiple fitness functions (F1-F6) for comparison
 * Tournament selection, order crossover, swap mutation
 
 **Key Features:**
+
 * **Population Diversity**: Maintains multiple candidate solutions
 * **Scalability**: Excellent performance on large instances
 * **Fitness Flexibility**: Six different evaluation functions
@@ -246,7 +264,8 @@ def fitness_f1(board):
     return conflicts(board)
 ```
 
-- **Objective**: Minimize total conflicts
+* **Objective**: Minimize total conflicts
+
 * **Characteristics**: Direct, simple, baseline approach
 * **Performance**: Good general performance
 
@@ -259,7 +278,8 @@ def fitness_f2(board):
     return base_conflicts + (base_conflicts ** 1.5)
 ```
 
-- **Objective**: Exponential penalty for higher conflicts
+* **Objective**: Exponential penalty for higher conflicts
+
 * **Characteristics**: Aggressive conflict reduction
 * **Performance**: Fast convergence on small instances
 
@@ -273,7 +293,8 @@ def fitness_f3(board):
     return 2 * row_conflicts + 3 * diag_conflicts
 ```
 
-- **Objective**: Differentiated penalty by constraint type
+* **Objective**: Differentiated penalty by constraint type
+
 * **Characteristics**: Targeted constraint handling
 * **Performance**: Effective on structured problems
 
@@ -287,7 +308,8 @@ def fitness_f4(board):
     return base_conflicts - 0.1 * diversity_bonus
 ```
 
-- **Objective**: Minimize conflicts while maintaining diversity
+* **Objective**: Minimize conflicts while maintaining diversity
+
 * **Characteristics**: Prevents premature convergence
 * **Performance**: Robust across problem sizes
 
@@ -302,7 +324,8 @@ def fitness_f5(board):
     return base_conflicts * scale_factor
 ```
 
-- **Objective**: Adaptive scaling for different problem sizes
+* **Objective**: Adaptive scaling for different problem sizes
+
 * **Characteristics**: Size-aware optimization
 * **Performance**: Consistent across scale variations
 
@@ -317,7 +340,8 @@ def fitness_f6(board):
     return 0.6 * conflict_score + 0.3 * constraint_score + 0.1 * efficiency_score
 ```
 
-- **Objective**: Multi-criteria evaluation with weighted combination
+* **Objective**: Multi-criteria evaluation with weighted combination
+
 * **Characteristics**: Comprehensive solution assessment
 * **Performance**: Best overall performance on complex instances
 
@@ -403,15 +427,18 @@ def tune_ga_for_N(N, fitness_mode, pop_multipliers, gen_multipliers, pm_values):
 ### Scalability Analysis
 
 **Small Instances (N ≤ 16):**
+
 * **Backtracking**: Optimal choice, very fast execution
 * **SA/GA**: Overkill, but useful for algorithm comparison
 
 **Medium Instances (16 < N ≤ 40):**
+
 * **Backtracking**: Becomes exponentially slow
 * **Simulated Annealing**: Sweet spot for performance
 * **Genetic Algorithm**: Good performance with proper tuning
 
 **Large Instances (N > 40):**
+
 * **Backtracking**: Impractical due to exponential time
 * **Simulated Annealing**: Moderate performance
 * **Genetic Algorithm**: Best choice, excellent scalability
@@ -420,19 +447,22 @@ def tune_ga_for_N(N, fitness_mode, pop_multipliers, gen_multipliers, pm_values):
 
 #### Success Rate vs Problem Size
 
-- **BT**: 100% success rate for small N, impractical for large N
+* **BT**: 100% success rate for small N, impractical for large N
+
 * **SA**: High success rate for medium N, degrades gracefully  
 * **GA**: Fitness-dependent, generally excellent for large N
 
 #### Execution Time Scaling
 
-- **BT**: Exponential growth, fast for N ≤ 12
+* **BT**: Exponential growth, fast for N ≤ 12
+
 * **SA**: Near-linear growth, consistent performance
 * **GA**: Controlled by population and generation parameters
 
 #### Resource Usage
 
-- **BT**: Minimal memory, CPU-intensive for large N
+* **BT**: Minimal memory, CPU-intensive for large N
+
 * **SA**: Low memory, moderate CPU usage
 * **GA**: Memory scales with population size
 
@@ -441,12 +471,14 @@ def tune_ga_for_N(N, fitness_mode, pop_multipliers, gen_multipliers, pm_values):
 ### Metrics Collected
 
 **Primary Metrics:**
+
 * **Success Rate**: Percentage of runs finding optimal solution
 * **Execution Time**: Wall-clock time for successful runs
 * **Algorithmic Cost**: Nodes explored (BT), iterations (SA), generations (GA)
 * **Solution Quality**: Conflicts in best solution found
 
 **Advanced Metrics:**
+
 * **Timeout Rate**: Percentage of runs exceeding time limits
 * **Convergence Speed**: Average time/iterations to solution
 * **Algorithm Stability**: Variance in performance across runs
@@ -455,16 +487,19 @@ def tune_ga_for_N(N, fitness_mode, pop_multipliers, gen_multipliers, pm_values):
 ### Statistical Tests
 
 **Descriptive Statistics:**
+
 * Mean, median, standard deviation
 * Quartiles and percentiles
 * Confidence intervals (95%)
 
 **Distribution Analysis:**
+
 * Normality testing (Shapiro-Wilk)
 * Outlier detection (IQR method)
 * Histogram visualization
 
 **Comparative Analysis:**
+
 * Algorithm performance ranking
 * Pairwise comparisons
 * Effect size calculation
@@ -474,6 +509,7 @@ def tune_ga_for_N(N, fitness_mode, pop_multipliers, gen_multipliers, pm_values):
 ### Chart Categories
 
 **1. Performance Overview (9 charts per fitness)**
+
 * Success rate vs problem size
 * Execution time vs problem size (log scale)
 * Logical cost vs problem size  
@@ -485,6 +521,7 @@ def tune_ga_for_N(N, fitness_mode, pop_multipliers, gen_multipliers, pm_values):
 * Scalability visualization
 
 **2. Fitness Function Comparison (6 charts)**
+
 * Success rate comparison across fitness functions
 * Convergence speed analysis
 * Execution time trade-offs
@@ -493,6 +530,7 @@ def tune_ga_for_N(N, fitness_mode, pop_multipliers, gen_multipliers, pm_values):
 * Cross-fitness scalability
 
 **3. Statistical Analysis (12+ charts)**
+
 * Box plots for time distribution
 * Histogram distributions for stability
 * Violin plots for detailed distributions
@@ -501,6 +539,7 @@ def tune_ga_for_N(N, fitness_mode, pop_multipliers, gen_multipliers, pm_values):
 * Outlier analysis charts
 
 **4. Parameter Tuning Analysis (10+ charts)**
+
 * Heatmaps for parameter optimization
 * 3D surface plots for parameter interactions
 * Cost vs quality scatter plots
@@ -511,6 +550,7 @@ def tune_ga_for_N(N, fitness_mode, pop_multipliers, gen_multipliers, pm_values):
 ### Chart Styling
 
 **Professional Standards:**
+
 * High resolution (300 DPI) output
 * Scientific color schemes
 * Clear axis labeling with units
@@ -519,6 +559,7 @@ def tune_ga_for_N(N, fitness_mode, pop_multipliers, gen_multipliers, pm_values):
 * Statistical annotations (p-values, confidence intervals)
 
 **Technical Features:**
+
 * Matplotlib backend for precision
 * Seaborn integration for statistical plots
 * Custom styling for consistency
@@ -560,12 +601,14 @@ scaling_factor, projected_performance, resource_utilization
 ### Data Integrity
 
 **Validation Checks:**
+
 * Solution correctness verification
 * Parameter consistency validation
 * Statistical significance testing
 * Outlier detection and flagging
 
 **Metadata Preservation:**
+
 * Execution timestamps
 * System configuration
 * Random seed values
@@ -590,18 +633,21 @@ algo.py
 ### Performance Optimizations
 
 **Algorithmic Optimizations:**
+
 * O(N) conflict calculation using Counter
 * Efficient neighbor generation for SA
 * Memory-efficient population management for GA
 * Lazy evaluation for fitness calculations
 
 **System Optimizations:**
+
 * Multi-core parallel processing
 * Memory pooling for large datasets
 * Intelligent garbage collection
 * CPU cache optimization
 
 **I/O Optimizations:**
+
 * Streaming CSV writing
 * Asynchronous file operations
 * Compressed intermediate storage
@@ -610,12 +656,14 @@ algo.py
 ### Error Handling
 
 **Robust Execution:**
+
 * Timeout management with graceful degradation
 * Memory overflow protection
 * Process crash recovery
 * Result validation and consistency checks
 
 **Debugging Support:**
+
 * Comprehensive logging system
 * Progress monitoring and reporting
 * Intermediate result checkpointing
@@ -639,6 +687,7 @@ python algo.py --parallel
 ```
 
 **Output Interpretation:**
+
 * Success rates > 90% indicate excellent algorithm performance
 * Timeout rates > 10% suggest parameter adjustment needed
 * Execution times follow expected complexity patterns
@@ -700,16 +749,19 @@ PM_VALUES = [0.05, 0.10, 0.15]    # mutation rate options
 ### Common Issues
 
 **Memory Problems:**
+
 * **Symptom**: Process killed due to memory usage
 * **Solution**: Reduce `RUNS_*_FINAL` values or use sequential mode
 * **Prevention**: Monitor memory usage during large experiments
 
 **Timeout Issues:**
+
 * **Symptom**: High timeout rates in results
 * **Solution**: Increase `*_TIME_LIMIT` values or reduce problem sizes
 * **Prevention**: Profile algorithm performance before large runs
 
 **Performance Problems:**
+
 * **Symptom**: Very slow execution
 * **Solution**: Reduce problem sizes or use fewer processes
 * **Prevention**: Start with small test runs to estimate timing
@@ -737,11 +789,21 @@ python -m memory_profiler algo.py
 python -m cProfile -o profile.stats algo.py
 ```
 
+## Planned Improvements
+
+* Add a CLI flag that switches among `sequential`, `parallel`, and `concurrent` modes and selects which fitness functions run
+* Load tuning parameters and board sizes from a JSON configuration file, refreshing it after successful tuning runs
+* Provide quick regression tests on a small instance (for example N = 8) to validate the three solvers and the CSV export pipeline
+* Expose a flag to skip tuning when trusted parameters already exist
+* Guarantee clean shutdown on `Ctrl+C` by terminating all child processes
+* Display progress information so long experiments share their current stage
+
 ## Contributing
 
 ### Development Guidelines
 
 **Code Standards:**
+
 * PEP 8 compliance for Python code style
 * Comprehensive English documentation  
 * Type hints for function signatures
@@ -761,6 +823,7 @@ python -m pytest tests/statistics/
 ```
 
 **Documentation Standards:**
+
 * English-only documentation and comments
 * Mathematical notation using LaTeX where appropriate
 * Algorithm complexity analysis required
@@ -840,21 +903,24 @@ def fitness_fx(board):
 
 ### Academic Literature
 
-- **Constraint Satisfaction**: Tsang, E. (1993). "Foundations of Constraint Satisfaction"
+* **Constraint Satisfaction**: Tsang, E. (1993). "Foundations of Constraint Satisfaction"
+
 * **Metaheuristics**: Blum, C. & Roli, A. (2003). "Metaheuristics in Combinatorial Optimization"
 * **Genetic Algorithms**: Goldberg, D.E. (1989). "Genetic Algorithms in Search, Optimization"
 * **Simulated Annealing**: Kirkpatrick, S. et al. (1983). "Optimization by Simulated Annealing"
 
 ### Implementation References
 
-- **Performance Analysis**: Experimental Algorithmics methodologies
+* **Performance Analysis**: Experimental Algorithmics methodologies
+
 * **Statistical Testing**: Scientific computing best practices
 * **Visualization**: Tufte, E.R. principles of statistical graphics
 * **Software Engineering**: Clean Code and SOLID principles
 
 ### Benchmarking Standards
 
-- **N-Queens Benchmarks**: Standard problem instances and expected performance
+* **N-Queens Benchmarks**: Standard problem instances and expected performance
+
 * **Algorithm Comparison**: Fair evaluation methodologies
 * **Statistical Significance**: Proper experimental design and analysis
 * **Reproducibility**: Random seed management and version control
