@@ -1,7 +1,18 @@
-"""Fitness functions for the Genetic Algorithm variants.
+"""Fitness functions for Genetic Algorithm variants on N-Queens.
 
-The module centralises all GA fitness formulations to make them easy to
-reuse and tune across experiments.
+This module centralizes a collection of fitness formulations (F1–F6) used by
+the Genetic Algorithm. All functions accept a board encoding ``board[col] = row``
+and return a scalar fitness value (higher is better unless otherwise stated).
+
+Guidance
+--------
+- F1/F2 are directly derived from pairwise conflicts.
+- F3/F5 penalize diagonal clusters with different severity (linear vs quadratic).
+- F4 mixes global fitness with a per-queen worst-case penalty.
+- F6 applies an exponential transform to the conflict count.
+
+Note: The project commonly tracks progress using the number of conflicts in
+addition to any chosen fitness. This helps compare runs across modes.
 """
 
 from __future__ import annotations
@@ -14,19 +25,37 @@ from .utils import conflicts
 
 
 def fitness_f1(board: Sequence[int]) -> float:
-    """Return the classic ``-conflicts`` fitness."""
+    """Return the classic negative-conflicts fitness.
+
+    Parameters
+    ----------
+    board : Sequence[int]
+        Configuration encoding ``board[col] = row]``.
+
+    Returns
+    -------
+    float
+        ``-conflicts(board)`` so that higher fitness corresponds to fewer conflicts.
+    """
     return -conflicts(board)
 
 
 def fitness_f2(board: Sequence[int]) -> float:
-    """Return the count of non-conflicting queen pairs."""
+    """Return the number of non-conflicting pairs of queens.
+
+    The maximum value is ``N*(N-1)/2`` for N queens.
+    """
     n = len(board)
     max_pairs = n * (n - 1) // 2
     return max_pairs - conflicts(board)
 
 
 def fitness_f3(board: Sequence[int]) -> float:
-    """Apply a linear penalty to diagonal clusters."""
+    """Apply a linear penalty to diagonal clusters (mild discouragement).
+
+    Counts the number of pairs on the same diagonals using a linear term
+    for clusters of size > 1.
+    """
     diag1: Counter[int] = Counter()
     diag2: Counter[int] = Counter()
     for column, row in enumerate(board):
@@ -47,7 +76,11 @@ def fitness_f3(board: Sequence[int]) -> float:
 
 
 def fitness_f4(board: Sequence[int]) -> float:
-    """Penalise the queen with the largest number of conflicts."""
+    """Penalize the queen with the largest number of conflicts.
+
+    Starts from the F2 perspective (non-conflicting pairs) and subtracts the
+    worst per-queen conflict count to reduce concentration of conflicts.
+    """
     n = len(board)
     max_pairs = n * (n - 1) // 2
     total_conflicts = conflicts(board)
@@ -67,7 +100,11 @@ def fitness_f4(board: Sequence[int]) -> float:
 
 
 def fitness_f5(board: Sequence[int]) -> float:
-    """Apply a quadratic penalty to diagonal clusters."""
+    """Apply a quadratic penalty to diagonal clusters (strong discouragement).
+
+    Clusters on the same diagonal incur a squared penalty to more strongly
+    penalize larger clusters.
+    """
     diag1: Counter[int] = Counter()
     diag2: Counter[int] = Counter()
     for column, row in enumerate(board):
@@ -88,12 +125,29 @@ def fitness_f5(board: Sequence[int]) -> float:
 
 
 def fitness_f6(board: Sequence[int], lam: float = 0.3) -> float:
-    """Return the exponential fitness ``exp(-lambda * conflicts)``."""
+    """Return the exponential fitness ``exp(-lam * conflicts(board))``.
+
+    Parameters
+    ----------
+    lam : float
+        Controls the steepness of the decay with conflicts.
+    """
     return math.exp(-lam * conflicts(board))
 
 
 def get_fitness_function(mode: str) -> Callable[[Sequence[int]], float]:
-    """Factory that returns the fitness function associated with *mode*."""
+    """Return a fitness function by label.
+
+    Parameters
+    ----------
+    mode : str
+        One of "F1".."F6".
+
+    Returns
+    -------
+    Callable[[Sequence[int]], float]
+        The corresponding fitness function.
+    """
     mapping = {
         "F1": fitness_f1,
         "F2": fitness_f2,

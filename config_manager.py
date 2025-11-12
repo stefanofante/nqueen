@@ -1,6 +1,19 @@
-"""
-Configuration Manager for N-Queens Experiment Suite
-Handles loading/saving configuration and optimal parameters from JSON
+"""Configuration management for the N-Queens experiment suite.
+
+This module provides a thin, explicit wrapper around a JSON configuration file
+to centralize experiment settings, timeouts, GA tuning grids, and persisted
+optimal GA parameters per fitness function.
+
+File format (high-level)
+------------------------
+- experiment_settings: default N values, run counts, and output directory.
+- timeout_settings: per-algorithm time limits and global experiment timeout.
+- tuning_grid: GA tuning search space for population/gen multipliers and rates.
+- fitness_modes: list of fitness labels to consider (e.g., ["F1", ..., "F6"]).
+- optimal_parameters: mapping fitness_mode -> { N: {params...} }
+
+All methods return Python native types; the class does not validate semantics
+beyond presence of keys to keep responsibilities minimal.
 """
 import json
 import os
@@ -8,14 +21,26 @@ from pathlib import Path
 
 
 class ConfigManager:
-    """Manages configuration and optimal parameters persistence"""
+    """Load, query, and persist configuration and optimal parameters.
+
+    Parameters
+    ----------
+    config_path : str | os.PathLike, default "config.json"
+        Path to the configuration file.
+    """
     
     def __init__(self, config_path="config.json"):
         self.config_path = Path(config_path)
         self.config = self.load_config()
     
     def load_config(self):
-        """Load configuration from JSON file"""
+        """Load and parse the JSON configuration file.
+
+        Returns
+        -------
+        dict
+            Root configuration object.
+        """
         if not self.config_path.exists():
             raise FileNotFoundError(
                 f"Configuration file not found: {self.config_path}\n"
@@ -26,35 +51,40 @@ class ConfigManager:
             return json.load(f)
     
     def save_config(self):
-        """Save current configuration to JSON file"""
+        """Persist the current in-memory configuration to disk."""
         with open(self.config_path, 'w') as f:
             json.dump(self.config, f, indent=2)
     
     def get_experiment_settings(self):
-        """Get experiment configuration"""
+        """Return high-level experiment settings (sizes, runs, output dir)."""
         return self.config.get("experiment_settings", {})
     
     def get_timeout_settings(self):
-        """Get timeout configuration"""
+        """Return per-algorithm and global timeout settings."""
         return self.config.get("timeout_settings", {})
     
     def get_tuning_grid(self):
-        """Get tuning grid parameters"""
+        """Return GA tuning grid settings (population/gen multipliers, rates)."""
         return self.config.get("tuning_grid", {})
     
     def get_fitness_modes(self):
-        """Get list of fitness functions to test"""
+        """Return the list of fitness function labels to test (e.g., F1..F6)."""
         return self.config.get("fitness_modes", ["F1", "F2", "F3", "F4", "F5", "F6"])
     
     def get_optimal_parameters(self, fitness_mode=None):
-        """
-        Get optimal parameters for a specific fitness or all
-        
-        Args:
-            fitness_mode: Optional fitness mode (e.g., "F1")
-        
-        Returns:
-            dict: optimal parameters
+        """Return stored optimal GA parameters.
+
+        Parameters
+        ----------
+        fitness_mode : str | None
+            If provided, return parameters for the specific fitness label;
+            otherwise return the entire mapping.
+
+        Returns
+        -------
+        dict
+            Mapping of fitness -> per-N parameter dicts, or a single per-N dict
+            when ``fitness_mode`` is specified.
         """
         optimal = self.config.get("optimal_parameters", {})
         if fitness_mode:
@@ -62,12 +92,14 @@ class ConfigManager:
         return optimal
     
     def save_optimal_parameters(self, fitness_mode, parameters):
-        """
-        Save optimal parameters for a fitness function after tuning
-        
-        Args:
-            fitness_mode: Fitness mode (e.g., "F1")
-            parameters: Dict of optimal parameters {N: {params}}
+        """Persist optimal GA parameters for a specific fitness function.
+
+        Parameters
+        ----------
+        fitness_mode : str
+            Fitness label (e.g., "F1").
+        parameters : dict
+            Mapping ``{N: {params}}`` produced by tuning.
         """
         if "optimal_parameters" not in self.config:
             self.config["optimal_parameters"] = {}
@@ -77,12 +109,12 @@ class ConfigManager:
         print(f"Optimal parameters for {fitness_mode} saved to {self.config_path}")
     
     def has_optimal_parameters(self, fitness_mode):
-        """Check if optimal parameters exist for a fitness mode"""
+        """Return True if optimal parameters exist for ``fitness_mode``."""
         optimal = self.config.get("optimal_parameters", {})
         return fitness_mode in optimal and bool(optimal[fitness_mode])
     
     def update_setting(self, section, key, value):
-        """Update a specific setting"""
+        """Update a specific setting and persist the change immediately."""
         if section not in self.config:
             self.config[section] = {}
         self.config[section][key] = value

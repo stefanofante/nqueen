@@ -1,6 +1,6 @@
 # N-Queens Problem: Comprehensive Algorithm Analysis
 
-This project provides a comprehensive comparative analysis of three fundamental algorithms for solving the N-Queens problem: **Backtracking**, **Simulated Annealing**, and **Genetic Algorithm**. The framework includes advanced statistical analysis, automated parameter tuning, and extensive visualization capabilities. The solver implementations now live inside the `nqueens/` package, while `algo.py` focuses on orchestration, reporting, and data export.
+This project provides a comprehensive comparative analysis of three fundamental algorithms for solving the N-Queens problem: **Backtracking**, **Simulated Annealing**, and **Genetic Algorithm**. The framework includes advanced statistical analysis, automated parameter tuning, and extensive visualization capabilities. The solver implementations live inside the `nqueens/` package, while `algoanalisys.py` focuses on orchestration, reporting, and data export.
 
 ## Overview
 
@@ -256,7 +256,7 @@ pip install -r requirements.txt
 
 ### Dependencies
 
-```
+```text
 matplotlib>=3.5.0
 numpy>=1.21.0
 pandas>=1.3.0
@@ -269,14 +269,28 @@ seaborn>=0.11.0
 
 ```bash
 # Run complete analysis (concurrent tuning mode - default)
-python algo.py
+python algoanalisys.py
 
-# Run sequential mode  
-python algo.py --sequential
+# Sequential pipeline
+python algoanalisys.py --mode sequential
 
-# Run classic parallel mode
-python algo.py --parallel
+# Classic parallel pipeline
+python algoanalisys.py --mode parallel
+
+# Run quick smoke test (N=8) and exit
+python algoanalisys.py --quick-test
+
+# Run only selected fitness functions (comma-separated or multiple flags)
+python algoanalisys.py --fitness F1,F3,F5
 ```
+
+CLI flags overview:
+
+- --mode {sequential|parallel|concurrent}
+- --fitness, -f: filter fitness functions
+- --skip-tuning: reuse parameters from config.json
+- --config: configuration file path (default: config.json)
+- --quick-test: run quick regression and exit
 
 ### Configuration
 
@@ -300,13 +314,31 @@ GA_TIME_LIMIT = 60.0        # 60 seconds per run
 EXPERIMENT_TIMEOUT = 120.0  # 2 minutes total per experiment
 ```
 
+## Public API contracts (solvers)
+
+The orchestrator relies on the following stable contracts:
+
+- Backtracking solvers: functions named `bt_nqueens_*` in `nqueens.backtracking`.
+  - Signature: `(N: int, time_limit: Optional[float]) -> Tuple[Optional[List[int]], int, float]`
+  - Returns: (solution or None, explored_nodes, elapsed_seconds)
+
+- Simulated Annealing: `sa_nqueens` in `nqueens.simulated_annealing`.
+  - Signature: `(N: int, max_iter: int, T0: float, alpha: float, time_limit: Optional[float]) -> Tuple[bool, int, float, int, int, bool]`
+  - Returns: (success, steps_or_gen, elapsed_seconds, best_conflicts, evaluations, timeout)
+
+- Genetic Algorithm: `ga_nqueens` in `nqueens.genetic`.
+  - Signature: `(N: int, pop_size: int, max_gen: int, pc: float, pm: float, tournament_size: int, fitness_mode: str, time_limit: Optional[float]) -> Tuple[bool, int, float, int, int, bool]`
+  - Returns: (success, steps_or_gen, elapsed_seconds, best_conflicts, evaluations, timeout)
+
+The orchestrator discovers backtracking solvers dynamically by the `bt_nqueens_*` prefix and validates everything via the quick regression runner.
+
 ## Output Structure
 
 ### Generated Files
 
 #### CSV Data Files
 
-```
+```text
 results_nqueens_tuning/
 ├── results_GA_F1_tuned.csv      # GA F1 aggregated results
 ├── results_GA_F2_tuned.csv      # GA F2 aggregated results
@@ -318,14 +350,14 @@ results_nqueens_tuning/
 
 #### Visualization Output
 
-```
+```text
 results_nqueens_tuning/
 ├── analysis_F1/                 # 9 detailed charts for F1
 ├── analysis_F2/                 # 9 detailed charts for F2  
 ├── ...                          # F3-F6 analysis
-├── fitness_comparison/           # 6 comparative charts
-├── statistical_analysis/        # 12+ statistical charts
-└── tuning_analysis/             # 10+ tuning analysis charts
+├── fitness_comparison/          # comparative charts
+├── statistical_analysis/        # optional statistical charts
+└── tuning_GA_F*.csv             # tuning exports per fitness
 ```
 
 ### Chart Categories
@@ -456,8 +488,10 @@ results_nqueens_tuning/
 git clone https://github.com/stefanofante/nqueen.git
 cd nqueen
 python -m venv .venv
-source .venv/bin/activate  # Linux/macOS
-# .venv\Scripts\activate     # Windows
+# On Windows (PowerShell)
+.venv\Scripts\Activate.ps1
+# On Linux/macOS
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -485,12 +519,9 @@ pip install -r requirements.txt
 
 ### Planned Improvements
 
-- Introduce a CLI flag that selects execution mode (`sequential`, `parallel`, `concurrent`) and filters the fitness functions to run
-- Load tuning parameters and board sizes from a JSON configuration file, updating it whenever new optimal parameters are found
-- Provide quick regression tests on a small instance (for example N = 8) that validate the three algorithms and the CSV export pipeline
-- Offer a flag to skip tuning when validated parameters already exist
-- Ensure every worker process terminates cleanly when receiving `Ctrl+C`
-- Surface a progress indicator so long experiments communicate their current stage
+- Add optional static typing enforcement via mypy (mypy.ini included)
+- Additional statistical plots (violin plots, CI bands) when raw runs are persisted
+- Lightweight HTML report bundling selected charts and CSVs
 
 ## License
 

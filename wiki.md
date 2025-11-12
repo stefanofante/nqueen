@@ -1,6 +1,6 @@
 # N-Queens Algorithm Comparison: Advanced Analysis Wiki
 
-This wiki provides comprehensive documentation for the N-Queens comparative algorithm analysis project, featuring Backtracking (BT), Simulated Annealing (SA), and Genetic Algorithm (GA) implementations. Solver code now lives inside the `nqueens/` package, while `algo.py` acts as the orchestrator for tuning, experimentation, and reporting.
+This wiki provides comprehensive documentation for the N-Queens comparative algorithm analysis project, featuring Backtracking (BT), Simulated Annealing (SA), and Genetic Algorithm (GA) implementations. Solver code now lives inside the `nqueens/` package, while `algoanalisys.py` acts as the orchestrator for tuning, experimentation, and reporting.
 
 ## Overview
 
@@ -19,7 +19,7 @@ This project compares three fundamental approaches to solving the N-Queens probl
 
 ## Project Structure
 
-* `algo.py`: orchestration layer handling tuning pipelines, experiment scheduling, chart generation, and CSV export
+* `algoanalisys.py`: orchestration layer handling tuning pipelines, experiment scheduling, chart generation, and CSV export
 * `nqueens/backtracking.py`: iterative backtracking solver
 * `nqueens/simulated_annealing.py`: simulated annealing solver
 * `nqueens/genetic.py`: genetic algorithm driver
@@ -619,15 +619,13 @@ scaling_factor, projected_performance, resource_utilization
 ### Code Organization
 
 ```
-algo.py
-├── Statistical Functions (lines 16-120)
-├── Global Parameters (lines 121-190)
-├── Utility Functions (lines 191-255)
-├── Algorithm Implementations (lines 256-720)
-├── Tuning Framework (lines 721-1400)
-├── Experiment Management (lines 1401-2000)
-├── Visualization Engine (lines 2001-2800)
-└── Main Execution (lines 2801-3000)
+algoanalisys.py
+├── Configuration and CLI
+├── Tuning Framework (GA/fitness F1–F6)
+├── Experiment Orchestration (BT/SA/GA)
+├── Statistical Aggregation and CSV Export
+├── Visualization Engine (Matplotlib/Seaborn)
+└── Quick Regression Runner (N=8)
 ```
 
 ### Performance Optimizations
@@ -676,14 +674,20 @@ algo.py
 **Basic Execution:**
 
 ```bash
-# Default mode: concurrent tuning with all fitness functions
-python algo.py
+# Default: concurrent pipeline with all fitness functions
+python algoanalisys.py
 
-# Sequential processing (lower memory usage)  
-python algo.py --sequential
+# Sequential processing (lower memory usage)
+python algoanalisys.py --mode sequential
 
-# Classic parallel mode (legacy compatibility)
-python algo.py --parallel
+# Classic parallel mode
+python algoanalisys.py --mode parallel
+
+# Quick smoke test (N=8) and exit
+python algoanalisys.py --quick-test
+
+# Run selected fitness functions only
+python algoanalisys.py --fitness F1,F3,F5
 ```
 
 **Output Interpretation:**
@@ -771,11 +775,11 @@ PM_VALUES = [0.05, 0.10, 0.15]    # mutation rate options
 **Logging Analysis:**
 
 ```bash
-# Enable verbose logging
+# Enable verbose logging (bash)
 export ALGO_DEBUG=1
-python algo.py
+python algoanalisys.py
 
-# Monitor progress
+# Monitor progress (bash)
 tail -f algo.log
 ```
 

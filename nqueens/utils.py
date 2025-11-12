@@ -1,7 +1,12 @@
 """Utility helpers for the N-Queens project.
 
-This module exposes low-level primitives that are shared across the
-individual algorithm implementations, such as conflict counters.
+This module provides reusable, low-level primitives that different algorithms
+depend upon. In particular, it includes two implementations to count the number
+of conflicting queen pairs in a given configuration.
+
+Representation
+--------------
+Boards are encoded as a 1D array/list where ``board[col] = row``.
 """
 
 from __future__ import annotations
@@ -11,7 +16,12 @@ from typing import Sequence
 
 
 def conflicts(board: Sequence[int]) -> int:
-    """Compute the number of conflicting queen pairs in *O(N).*"""
+    """Compute the number of conflicting queen pairs in O(N).
+
+    Uses hash maps to count occurrences per row and diagonals and reduce the
+    computation from O(N^2) to O(N). Suitable for repeated evaluations inside
+    heuristic search algorithms.
+    """
     n = len(board)
     row_count: Counter[int] = Counter()
     diag1: Counter[int] = Counter()
@@ -33,7 +43,11 @@ def conflicts(board: Sequence[int]) -> int:
 
 
 def conflicts_on2(board: Sequence[int]) -> int:
-    """Compute the number of conflicting queen pairs in *O(N^2).*"""
+    """Compute the number of conflicting queen pairs in O(N^2).
+
+    Reference implementation for validation and benchmarking. Prefer
+    ``conflicts`` in performance-sensitive contexts.
+    """
     n = len(board)
     conflicts_count = 0
     for i in range(n):

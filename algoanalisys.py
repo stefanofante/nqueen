@@ -1,3 +1,25 @@
+"""
+N-Queens Orchestrator and Analysis Utilities
+===========================================
+
+This module provides the end-to-end orchestration, tuning, execution, and
+analysis toolkit for solving the N-Queens problem with multiple algorithms:
+
+- Backtracking (deterministic, exact) implementations under `nqueens.backtracking`
+- Simulated Annealing (stochastic local search)
+- Genetic Algorithm (stochastic evolutionary search) with parameter tuning
+
+It includes:
+- Configuration loading and application (timeouts, grids, fitness modes)
+- Grid-search and parallel tuning for GA hyperparameters
+- Final experiment runners (sequential and parallel) that collect rich metrics
+- Statistical summarization utilities and comprehensive plotting routines
+- A quick regression runner that smoke-tests all available algorithms
+
+All comments and docstrings are written to serve as a concise developer guide
+and a reliable reference for future extensions and maintenance.
+"""
+
 import argparse
 import csv
 import multiprocessing
@@ -5,28 +27,139 @@ import os
 import random
 import statistics
 import tempfile
-from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from time import perf_counter
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sns
+try:
+    import seaborn as sns
+except Exception:  # seaborn is optional for core logic/tests
+    sns = None  # type: ignore
+from concurrent.futures import ProcessPoolExecutor
 
 from config_manager import ConfigManager
 from nqueens.backtracking import bt_nqueens_first
 from nqueens.genetic import ga_nqueens
 from nqueens.simulated_annealing import sa_nqueens
+import importlib
+import inspect
+import pkgutil
+import types
+from typing import Any, Dict, List, Optional, Tuple, TypedDict, cast
 
 # ======================================================
-# FUNZIONI STATISTICHE AVANZATE
+# TYPE DEFINITIONS (for static analysis and readability)
 # ======================================================
 
-def compute_detailed_statistics(values, label=""):
-    """
-    Calcola statistiche dettagliate per una lista di valori.
-    Gestisce separatamente valori vuoti e restituisce un dizionario completo.
+class StatsSummary(TypedDict, total=False):
+    count: int
+    mean: Optional[float]
+    median: Optional[float]
+    std: Optional[float]
+    min: Optional[float]
+    max: Optional[float]
+    q25: Optional[float]
+    q75: Optional[float]
+    range: Optional[float]
+
+class BTEntry(TypedDict):
+    solution_found: bool
+    nodes: int
+    time: float
+
+class SARecord(TypedDict):
+    success: bool
+    steps: int
+    time: float
+    best_conflicts: int
+    evals: int
+    timeout: bool
+
+class GARecord(TypedDict):
+    success: bool
+    gen: int
+    time: float
+    best_conflicts: int
+    evals: int
+    timeout: bool
+
+class SAResultEntry(TypedDict, total=False):
+    success_rate: float
+    timeout_rate: float
+    failure_rate: float
+    total_runs: int
+    successes: int
+    failures: int
+    timeouts: int
+    success_steps: StatsSummary
+    success_time: StatsSummary
+    success_evals: StatsSummary
+    success_best_conflicts: StatsSummary
+    timeout_steps: StatsSummary
+    timeout_time: StatsSummary
+    timeout_evals: StatsSummary
+    timeout_best_conflicts: StatsSummary
+    failure_steps: StatsSummary
+    failure_time: StatsSummary
+    failure_evals: StatsSummary
+    failure_best_conflicts: StatsSummary
+    all_steps: StatsSummary
+    all_time: StatsSummary
+    all_evals: StatsSummary
+    all_best_conflicts: StatsSummary
+    raw_runs: List[SARecord]
+
+class GAResultEntry(TypedDict, total=False):
+    success_rate: float
+    timeout_rate: float
+    failure_rate: float
+    total_runs: int
+    successes: int
+    failures: int
+    timeouts: int
+    success_gen: StatsSummary
+    success_time: StatsSummary
+    success_evals: StatsSummary
+    success_best_conflicts: StatsSummary
+    timeout_gen: StatsSummary
+    timeout_time: StatsSummary
+    timeout_evals: StatsSummary
+    timeout_best_conflicts: StatsSummary
+    failure_gen: StatsSummary
+    failure_time: StatsSummary
+    failure_evals: StatsSummary
+    failure_best_conflicts: StatsSummary
+    all_gen: StatsSummary
+    all_time: StatsSummary
+    all_evals: StatsSummary
+    all_best_conflicts: StatsSummary
+    pop_size: int
+    max_gen: int
+    pm: float
+    pc: float
+    tournament_size: int
+    raw_runs: List[GARecord]
+
+class ExperimentResults(TypedDict):
+    BT: Dict[int, BTEntry]
+    SA: Dict[int, SAResultEntry]
+    GA: Dict[int, GAResultEntry]
+
+# ======================================================
+# STATISTICS UTILITIES
+# ======================================================
+
+def compute_detailed_statistics(values: List[float], label: str = "") -> StatsSummary:
+    """Compute detailed summary statistics for a sequence of numbers.
+
+    Handles empty inputs gracefully by returning a structure with None fields
+    rather than raising. Uses population standard deviation for stability on
+    small samples.
+
+    Returns a dictionary with: count, mean, median, std, min, max, q25, q75, range.
+    The optional 'label' is only kept for external tracing and is not used here.
     """
     if not values:
         return {
@@ -44,17 +177,17 @@ def compute_detailed_statistics(values, label=""):
     sorted_vals = sorted(values)
     n = len(values)
     
-    # Statistiche base
+    # Basic statistics
     mean_val = statistics.mean(values)
     median_val = statistics.median(values)
     min_val = min(values)
     max_val = max(values)
     range_val = max_val - min_val
     
-    # Deviazione standard (usando population std)
+    # Standard deviation (population)
     std_val = statistics.pstdev(values) if n > 1 else 0
     
-    # Quartili
+    # Quartiles (simple index-based selection for small samples)
     q25 = sorted_vals[n // 4] if n >= 4 else min_val
     q75 = sorted_vals[3 * n // 4] if n >= 4 else max_val
     
@@ -70,16 +203,17 @@ def compute_detailed_statistics(values, label=""):
         'range': range_val,
     }
 
-def compute_grouped_statistics(results_list, success_key='success'):
-    """
-    Calcola statistiche separate per successi, fallimenti e timeout.
-    
-    Args:
-        results_list: Lista di dizionari con risultati degli esperimenti
-        success_key: Chiave che indica il successo (default: 'success')
-    
-    Returns:
-        Dizionario con statistiche separate per successi, fallimenti e timeout
+def compute_grouped_statistics(results_list: List[Dict[str, Any]], success_key: str = 'success') -> Dict[str, Any]:
+    """Aggregate metrics by outcome groups (success, failure, timeout).
+
+    Expects a list of dictionaries coming from multiple independent runs, where
+    each dictionary may contain keys among: success, timeout, time, steps, nodes,
+    gen, evals, best_conflicts. The 'success_key' parameter identifies the field
+    used to mark a successful run.
+
+    Returns a dictionary with overall counts and rates, plus detailed statistics
+    (mean, median, std, percentiles) for each metric within: all runs, successes,
+    timeouts, and failures (timeouts excluded).
     """
     successes = [r for r in results_list if r.get(success_key, False)]
     timeouts = [r for r in results_list if r.get('timeout', False)]
@@ -123,7 +257,11 @@ def compute_grouped_statistics(results_list, success_key='success'):
 
 
 class ProgressPrinter:
-    """Lightweight textual progress reporter for long-running loops."""
+    """Minimal, stdout-only progress reporter for long-running loops.
+
+    Prints a single line per update in the form:
+        [<label>] <index>/<total> (<percent>%) - <detail>
+    """
 
     def __init__(self, total, label):
         self.total = max(1, total)
@@ -135,8 +273,12 @@ class ProgressPrinter:
         print(f"[{self.label}] {index}/{self.total} ({percent:.0f}%)" + suffix)
 
 
-def parse_fitness_filters(fitness_args):
-    """Normalize fitness CLI arguments into an uppercase list."""
+def parse_fitness_filters(fitness_args: Optional[List[str]]):
+    """Normalize CLI fitness arguments into a de-duplicated uppercase list.
+
+    Accepts multiple flags and comma-separated entries; returns None when no
+    filters are provided.
+    """
     if not fitness_args:
         return None
 
@@ -150,8 +292,13 @@ def parse_fitness_filters(fitness_args):
     return selected or None
 
 
-def normalize_optimal_parameters(raw_params):
-    """Convert JSON-loaded optimal parameters into an int-keyed mapping."""
+def normalize_optimal_parameters(raw_params: Optional[Dict[Any, Any]]) -> Dict[Any, Any]:
+    """Coerce JSON-loaded optimal parameters to a dict keyed by integer N.
+
+    Some configurations store keys as strings (e.g. "8"). This function ensures
+    consumers can safely access by integer keys while preserving any uncastable
+    entries.
+    """
     normalized = {}
     if not raw_params:
         return normalized
@@ -165,8 +312,11 @@ def normalize_optimal_parameters(raw_params):
     return normalized
 
 
-def ensure_parameters_for_all_n(params, n_values, fitness_mode):
-    """Ensure optimal GA parameters are available for every requested N."""
+def ensure_parameters_for_all_n(params: Dict[int, Dict[str, Any]], n_values: List[int], fitness_mode: str) -> None:
+    """Validate that optimal GA parameters are present for every requested N.
+
+    Raises ValueError if any N is missing, with a clear remediation hint.
+    """
     missing = [n for n in n_values if n not in params]
     if missing:
         missing_str = ', '.join(str(n) for n in missing)
@@ -176,8 +326,14 @@ def ensure_parameters_for_all_n(params, n_values, fitness_mode):
         )
 
 
-def apply_configuration(config_path, fitness_filter=None):
-    """Load configuration from JSON and apply overrides to module globals."""
+def apply_configuration(config_path: str, fitness_filter: Optional[List[str]] = None) -> Tuple[ConfigManager, List[str]]:
+    """Load configuration from JSON and apply overrides to module globals.
+
+    Returns a tuple (ConfigManager, selected_fitness_modes). The configuration
+    may override experiment sizes, run counts, timeout settings, and GA tuning
+    grids. When fitness_filter is provided, only a validated subset of modes
+    will be selected; otherwise defaults from the file are used.
+    """
 
     config_mgr = ConfigManager(config_path)
 
@@ -236,8 +392,12 @@ def apply_configuration(config_path, fitness_filter=None):
     return config_mgr, selected_modes
 
 
-def load_optimal_parameters(fitness_mode, config_mgr, n_values):
-    """Fetch and validate optimal GA parameters from the configuration file."""
+def load_optimal_parameters(fitness_mode: str, config_mgr: ConfigManager, n_values: List[int]) -> Dict[int, Dict[str, Any]]:
+    """Fetch and validate optimal GA parameters for a given fitness mode.
+
+    Ensures parameters exist for all requested N. Intended for use when the
+    tuning phase is skipped and stored parameters are reused.
+    """
     if config_mgr is None:
         raise ValueError("Config manager is required when skip-tuning is enabled.")
 
@@ -246,43 +406,39 @@ def load_optimal_parameters(fitness_mode, config_mgr, n_values):
     return params
 
 # ======================================================
-# PARAMETRI GLOBALI
+# GLOBAL CONFIGURATION
 # ======================================================
 
-# Dimensioni della scacchiera da testare - valori crescenti per analisi scalabilità
+# Board sizes to evaluate (in ascending order) for scalability analysis
 N_VALUES = [8, 16, 24, 40, 80, 120]
 
-# Numero di run indipendenti per SA e GA negli esperimenti finali
-# Più run = maggiore affidabilità statistica, ma tempi più lunghi
+# Number of independent runs in final experiments (higher = more robust stats)
 RUNS_SA_FINAL = 40
 RUNS_GA_FINAL = 40
-RUNS_BT_FINAL = 1   # BT è deterministico, basta 1 run per N
+RUNS_BT_FINAL = 1   # Backtracking is deterministic; one run per N is sufficient
 
-# Numero di run per la fase di tuning GA (per combinazione di parametri)
-# Meno run nel tuning per velocizzare la ricerca parametri
+# Number of runs per GA tuning combination (kept lower to accelerate grid search)
 RUNS_GA_TUNING = 5
 
-# Limite di tempo per BT in secondi (None = nessun limite)
-# Utile per evitare che BT rimanga bloccato su istanze difficili
-BT_TIME_LIMIT = 60*5.0  # es. 5.0 minuti
+# Backtracking time limit in seconds (None = no limit)
+# Helps avoid pathological runtimes on large N when needed
+BT_TIME_LIMIT = 60*5.0  # e.g., 5 minutes
 
-# Limiti di tempo per SA e GA in secondi (None = nessun limite)
-SA_TIME_LIMIT = 120.0  # 120 secondi per SA
-GA_TIME_LIMIT = 240.0  # 240 secondi per GA 
+# SA and GA time limits in seconds (None = no limit)
+SA_TIME_LIMIT = 120.0  # Simulated Annealing
+GA_TIME_LIMIT = 240.0  # Genetic Algorithm 
 
-# Timeout globale per singolo esperimento (None = nessun limite)  
-EXPERIMENT_TIMEOUT = 120.0  # 2 minuti per esperimento completo
+# Global timeout per experiment bundle (None = no limit)
+EXPERIMENT_TIMEOUT = 120.0  # ~2 minutes per full experiment
 
-# Funzione per configurare facilmente i timeout
-def set_timeouts(bt_timeout=None, sa_timeout=30.0, ga_timeout=60.0, experiment_timeout=120.0):
-    """
-    Configura i timeout per tutti gli algoritmi.
-    
+def set_timeouts(bt_timeout: Optional[float] = None, sa_timeout: Optional[float] = 30.0, ga_timeout: Optional[float] = 60.0, experiment_timeout: Optional[float] = 120.0) -> None:
+    """Configure timeouts for all algorithms and the experiment wrapper.
+
     Args:
-        bt_timeout: timeout BT in secondi (None = illimitato)
-        sa_timeout: timeout SA in secondi (None = illimitato)  
-        ga_timeout: timeout GA in secondi (None = illimitato)
-        experiment_timeout: timeout esperimento in secondi (None = illimitato)
+        bt_timeout: Backtracking time limit in seconds (None = unlimited)
+        sa_timeout: Simulated Annealing time limit in seconds (None = unlimited)
+        ga_timeout: Genetic Algorithm time limit in seconds (None = unlimited)
+        experiment_timeout: Global time limit in seconds for an experiment (None = unlimited)
     """
     global BT_TIME_LIMIT, SA_TIME_LIMIT, GA_TIME_LIMIT, EXPERIMENT_TIMEOUT
     BT_TIME_LIMIT = bt_timeout
@@ -296,77 +452,75 @@ def set_timeouts(bt_timeout=None, sa_timeout=30.0, ga_timeout=60.0, experiment_t
     print(f"   - GA: {GA_TIME_LIMIT}s" if GA_TIME_LIMIT else "   - GA: unlimited")
     print(f"   - Experiment: {EXPERIMENT_TIMEOUT}s" if EXPERIMENT_TIMEOUT else "   - Experiment: unlimited")
 
-# Directory di output per CSV e grafici
+# Output directory for CSV and charts
 OUT_DIR = "results_nqueens_tuning"
 
-# Griglia di tuning per il GA - definisce lo spazio di ricerca parametri
-POP_MULTIPLIERS = [4, 8, 16]       # pop_size ≈ 4N, 8N, 16N - popolazione scala con N
-GEN_MULTIPLIERS = [30, 50, 80]     # max_gen ≈ 30N, 50N, 80N - generazioni scala con N
-PM_VALUES = [0.05, 0.1, 0.15]        # probabilità mutazione - range tipico per GA
-PC_FIXED = 0.8                     # probabilità crossover fissa (valore standard)
-TOURNAMENT_SIZE_FIXED = 3          # dimensione torneo per selezione
+# GA tuning grid (defines the parameter search space)
+POP_MULTIPLIERS = [4, 8, 16]       # pop_size ≈ {k}*N; population scales with N
+GEN_MULTIPLIERS = [30, 50, 80]     # max_gen ≈ {m}*N; generations scale with N
+PM_VALUES = [0.05, 0.1, 0.15]      # mutation rate candidates
+PC_FIXED = 0.8                     # fixed crossover probability
+TOURNAMENT_SIZE_FIXED = 3          # tournament size for selection
 
-# Tutte le funzioni di fitness da testare (F1-F6)
+# Fitness functions to evaluate (F1–F6)
 FITNESS_MODES = ["F1", "F2", "F3", "F4", "F5", "F6"]
 
-# Numero di processi per il parallelismo
-# Lascia un core libero per il sistema operativo
+# Number of worker processes to use (leave one core for the OS)
 NUM_PROCESSES = max(1, multiprocessing.cpu_count() - 1)
 
 
 # ======================================================
-# GA: Tuning dei parametri per un singolo (N, fitness_mode)
+# GA: Parameter tuning for a single (N, fitness_mode)
 # ======================================================
 
 def tune_ga_for_N(
-    N,
-    fitness_mode,
-    pop_multipliers,
-    gen_multipliers,
-    pm_values,
-    pc,
-    tournament_size,
-    runs_tuning=10,
-):
-    """
-    Grid search esaustiva per ottimizzare parametri GA.
-    
-    Testa tutte le combinazioni di parametri e seleziona la migliore
-    secondo il criterio: 1) massimo success rate, 2) minime generazioni.
-    
+    N: int,
+    fitness_mode: str,
+    pop_multipliers: List[int],
+    gen_multipliers: List[int],
+    pm_values: List[float],
+    pc: float,
+    tournament_size: int,
+    runs_tuning: int = 10,
+) -> Dict[str, Any]:
+    """Exhaustive grid search to identify robust GA hyperparameters.
+
+    Selection criterion:
+    1) maximize success_rate; 2) among ties, minimize avg_gen_success.
+
     Args:
-        N: dimensione problema
-        fitness_mode: funzione fitness da usare ("F1", "F2", etc.)
-        pop_multipliers: moltiplicatori per dimensione popolazione [k1, k2, ...]
-        gen_multipliers: moltiplicatori per numero generazioni [m1, m2, ...]
-        pm_values: valori probabilità mutazione da testare [p1, p2, ...]
-        pc: probabilità crossover fissa
-        tournament_size: dimensione torneo fissa
-        runs_tuning: numero run indipendenti per combinazione
-        
+        N: problem size (number of queens)
+        fitness_mode: fitness function label (e.g., "F1", "F2")
+        pop_multipliers: list of multipliers for population size (k*N)
+        gen_multipliers: list of multipliers for max generations (m*N)
+        pm_values: list of mutation rates to try
+        pc: fixed crossover probability
+        tournament_size: selection tournament size
+        runs_tuning: independent runs per parameter combination
+
     Returns:
-        dict: migliori parametri con statistiche associate
+        dict describing the best configuration with aggregated stats:
         {
-            "N": N,
-            "fitness_mode": fitness_mode,
-            "pop_size": migliore_pop_size,
-            "max_gen": migliore_max_gen,
-            "pm": migliore_pm,
-            "pc": pc,
-            "tournament_size": tournament_size,
-            "success_rate": tasso_successo_miglior_configurazione,
-            "avg_gen_success": generazioni_medie_successi_migliore
+            "N": int,
+            "fitness_mode": str,
+            "pop_size": int,
+            "max_gen": int,
+            "pm": float,
+            "pc": float,
+            "tournament_size": int,
+            "success_rate": float,
+            "avg_gen_success": Optional[float],
         }
     """
-    best = None
+    best: Optional[Dict[str, Any]] = None
 
-    # Prova tutte le combinazioni di parametri
+    # Evaluate all parameter combinations
     for k in pop_multipliers:
-        pop_size = max(50, int(k * N))  # popolazione minima 50
+        pop_size = max(50, int(k * N))  # enforce a minimum population size
         for m in gen_multipliers:
-            max_gen = int(m * N)  # generazioni scalano con N
+            max_gen = int(m * N)  # scale generations with problem size
             for pm in pm_values:
-                # Testa questa combinazione con runs_tuning esperimenti
+                # Test this combination across multiple runs
                 successes = 0
                 gen_success = []
 
@@ -381,11 +535,11 @@ def tune_ga_for_N(
                         fitness_mode=fitness_mode,
                         time_limit=GA_TIME_LIMIT,
                     )
-                    if s:  # se ha trovato soluzione
+                    if s:  # solution found
                         successes += 1
                         gen_success.append(gen)
 
-                # Calcola statistiche per questa combinazione
+                # Compute aggregated stats for this combination
                 success_rate = successes / runs_tuning
                 avg_gen = statistics.mean(gen_success) if gen_success else None
 
@@ -401,7 +555,7 @@ def tune_ga_for_N(
                     "avg_gen_success": avg_gen,
                 }
 
-                # Confronta con miglior candidato attuale
+                # Update the current best according to the selection criterion
                 if best is None:
                     best = candidate
                 else:
@@ -414,25 +568,26 @@ def tune_ga_for_N(
                             if candidate["avg_gen_success"] < best["avg_gen_success"]:
                                 best = candidate
 
+    if best is None:
+        raise RuntimeError("No GA parameter candidate evaluated; check tuning grid.")
     return best
 
 
 # ======================================================
-# GA: Funzioni di supporto per la parallelizzazione
+# GA: Helper functions for parallel execution
 # ======================================================
 
-def run_single_ga_experiment(params):
-    """
-    Wrapper per eseguire un singolo esperimento GA in un processo separato.
-    
-    Necessaria perché ProcessPoolExecutor richiede funzioni top-level
-    (non può serializzare lambda o metodi di classe).
-    
+def run_single_ga_experiment(params: Tuple[int, int, int, float, float, int, str]):
+    """Execute a single GA run in a worker process.
+
+    Required because ProcessPoolExecutor needs top-level callables (it cannot
+    serialize lambdas or bound methods).
+
     Args:
-        params: tupla (N, pop_size, max_gen, pc, pm, tournament_size, fitness_mode)
-        
+        params: tuple (N, pop_size, max_gen, pc, pm, tournament_size, fitness_mode)
+
     Returns:
-        tuple: risultato di ga_nqueens()
+        tuple: result of ga_nqueens()
     """
     N, pop_size, max_gen, pc, pm, tournament_size, fitness_mode = params
     return ga_nqueens(
@@ -447,31 +602,30 @@ def run_single_ga_experiment(params):
     )
 
 
-def run_single_sa_experiment(params):
-    """
-    Wrapper per eseguire un singolo esperimento SA in un processo separato.
-    
+def run_single_sa_experiment(params: Tuple[int, int, float, float]):
+    """Execute a single SA run in a worker process.
+
     Args:
-        params: tupla (N, max_iter, T0, alpha)
-        
+        params: tuple (N, max_iter, T0, alpha)
+
     Returns:
-        tuple: risultato di sa_nqueens()
+        tuple: result of sa_nqueens()
     """
     N, max_iter, T0, alpha = params
     return sa_nqueens(N, max_iter=max_iter, T0=T0, alpha=alpha, time_limit=SA_TIME_LIMIT)
 
 
-def run_with_timeout(func, args, timeout):
-    """
-    Esegue una funzione con timeout usando ProcessPoolExecutor.
-    
+def run_with_timeout(func, args, timeout: Optional[float]) -> Tuple[bool, Any]:
+    """Run a function with a timeout using a dedicated worker process.
+
     Args:
-        func: funzione da eseguire
-        args: argomenti della funzione
-        timeout: timeout in secondi
-        
+        func: callable to execute
+        args: arguments passed to the callable
+        timeout: timeout in seconds
+
     Returns:
-        tuple: (success, result) - success=True se completato, result=valore o None
+        tuple: (success, result) with success=True if the function completes in time,
+        and result set to the return value or None on timeout/error.
     """
     try:
         with ProcessPoolExecutor(max_workers=1) as executor:
@@ -487,16 +641,14 @@ def run_with_timeout(func, args, timeout):
         return False, None
 
 
-def test_parameter_combination_parallel(params):
-    """
-    Testa una singola combinazione di parametri GA eseguendo
-    multiple run in parallelo e calcolando le statistiche.
-    
+def test_parameter_combination_parallel(params: Tuple[int, str, int, int, float, float, int, int]) -> Dict[str, Any]:
+    """Evaluate one GA parameter combination with multiple parallel runs.
+
     Args:
-        params: tupla (N, fitness_mode, pop_size, max_gen, pc, pm, tournament_size, runs_tuning)
-        
+        params: tuple (N, fitness_mode, pop_size, max_gen, pc, pm, tournament_size, runs_tuning)
+
     Returns:
-        dict: statistiche per questa combinazione di parametri
+        dict: aggregated statistics for this parameter combination
     """
     N, fitness_mode, pop_size, max_gen, pc, pm, tournament_size, runs_tuning = params
     
@@ -537,34 +689,30 @@ def test_parameter_combination_parallel(params):
 
 
 def tune_ga_for_N_parallel(
-    N,
-    fitness_mode,
-    pop_multipliers,
-    gen_multipliers,
-    pm_values,
-    pc,
-    tournament_size,
-    runs_tuning=10,
-):
-    """
-    Versione parallela di tune_ga_for_N.
-    
-    Parallelizza su due livelli:
-    1. Combinazioni di parametri diverse vengono testate in parallelo
-    2. I run multipli per ogni combinazione vengono eseguiti in parallelo
-    
-    Questo porta a un speedup significativo rispetto alla versione sequenziale,
-    specialmente quando ci sono molte combinazioni da testare.
-    
+    N: int,
+    fitness_mode: str,
+    pop_multipliers: List[int],
+    gen_multipliers: List[int],
+    pm_values: List[float],
+    pc: float,
+    tournament_size: int,
+    runs_tuning: int = 10,
+) -> Dict[str, Any]:
+    """Parallel version of GA tuning for a single (N, fitness_mode).
+
+    Two levels of parallelism:
+    1) different parameter combinations are evaluated in parallel;
+    2) multiple independent runs per combination are also executed in parallel.
+
     Args:
-        N: dimensione problema
-        fitness_mode: funzione fitness da usare
-        pop_multipliers, gen_multipliers, pm_values: spazio parametri
-        pc, tournament_size: parametri fissi
-        runs_tuning: run per combinazione
-        
+        N: problem size
+        fitness_mode: fitness function to use
+        pop_multipliers, gen_multipliers, pm_values: parameter search space
+        pc, tournament_size: fixed parameters
+        runs_tuning: independent runs per combination
+
     Returns:
-        dict: migliori parametri trovati
+        dict describing the best parameters found
     """
     print(f"  Preparazione {len(pop_multipliers) * len(gen_multipliers) * len(pm_values)} combinazioni di parametri...")
     
@@ -589,7 +737,7 @@ def tune_ga_for_N_parallel(
             raise
     
     # Seleziona la migliore combinazione usando stesso criterio della versione sequenziale
-    best = None
+    best: Optional[Dict[str, Any]] = None
     for candidate in candidates:
         if best is None:
             best = candidate
@@ -603,21 +751,23 @@ def tune_ga_for_N_parallel(
                     if candidate["avg_gen_success"] < best["avg_gen_success"]:
                         best = candidate
     
+    if best is None:
+        raise RuntimeError("No GA parameter candidate evaluated in parallel; check tuning grid.")
     print(f"  Migliore combinazione: pop_size={best['pop_size']}, max_gen={best['max_gen']}, pm={best['pm']}, success_rate={best['success_rate']:.3f}")
     return best
 
 
-def tune_single_fitness(params):
-    """
-    Wrapper per il tuning di una singola fitness function.
-    Esegue il tuning GA per una specifica fitness in un processo separato.
-    
+def tune_single_fitness(params: Tuple[int, str, List[int], List[int], List[float], float, int, int]) -> Tuple[str, Dict[str, Any]]:
+    """Wrapper to tune GA parameters for a single fitness function.
+
+    Runs the tuning in a separate process to improve throughput.
+
     Args:
-        params: tupla (N, fitness_mode, pop_multipliers, gen_multipliers, 
+        params: tuple (N, fitness_mode, pop_multipliers, gen_multipliers,
                       pm_values, pc, tournament_size, runs_tuning)
-        
+
     Returns:
-        tuple: (fitness_mode, migliori_parametri)
+        tuple: (fitness_mode, best_params)
     """
     N, fitness_mode, pop_multipliers, gen_multipliers, pm_values, pc, tournament_size, runs_tuning = params
     return fitness_mode, tune_ga_for_N_parallel(
@@ -626,36 +776,29 @@ def tune_single_fitness(params):
 
 
 def tune_all_fitness_parallel(
-    N,
-    fitness_modes,
-    pop_multipliers,
-    gen_multipliers,
-    pm_values,
-    pc,
-    tournament_size,
-    runs_tuning=10,
-):
-    """
-    Esegue il tuning di TUTTE le fitness functions contemporaneamente per un dato N.
-    
-    Questa è la funzione chiave per il parallelismo avanzato:
-    invece di fare il tuning di F1, poi F2, poi F3, etc. in sequenza,
-    esegue il tuning di F1, F2, F3, F4, F5, F6 simultaneamente su core diversi.
-    
-    Vantaggi:
-    - Speedup lineare con numero di fitness (fino a limite di core disponibili)
-    - Utilizzo ottimale delle risorse multi-core
-    - Tempo totale = max(tempo_singola_fitness) invece di sum(tempi_fitness)
-    
+    N: int,
+    fitness_modes: List[str],
+    pop_multipliers: List[int],
+    gen_multipliers: List[int],
+    pm_values: List[float],
+    pc: float,
+    tournament_size: int,
+    runs_tuning: int = 10,
+) -> Dict[str, Dict[str, Any]]:
+    """Tune GA parameters for ALL fitness functions concurrently for a given N.
+
+    Each fitness is tuned on a separate worker process, enabling near-linear
+    speedup up to the number of available CPU cores.
+
     Args:
-        N: dimensione problema
-        fitness_modes: lista funzioni fitness da testare ["F1", "F2", ...]
-        pop_multipliers, gen_multipliers, pm_values: spazio parametri
-        pc, tournament_size: parametri fissi
-        runs_tuning: run per combinazione parametri
-        
+        N: problem size
+        fitness_modes: list of fitness labels ["F1", "F2", ...]
+        pop_multipliers, gen_multipliers, pm_values: parameter search space
+        pc, tournament_size: fixed parameters
+        runs_tuning: independent runs per parameter combination
+
     Returns:
-        dict: {fitness_mode: migliori_parametri} per ogni fitness
+        dict mapping fitness_mode -> best_params
     """
     print(f"Tuning contemporaneo di {len(fitness_modes)} fitness per N={N}")
     
@@ -697,39 +840,25 @@ def tune_all_fitness_parallel(
 # ======================================================
 
 def run_experiments_with_best_ga(
-    N_values,
-    runs_sa,
-    runs_ga,
-    bt_time_limit,
-    fitness_mode,
-    best_ga_params_for_N,
-    progress_label=None,
-):
+    N_values: List[int],
+    runs_sa: int,
+    runs_ga: int,
+    bt_time_limit: Optional[float],
+    fitness_mode: str,
+    best_ga_params_for_N: Dict[int, Dict[str, Any]],
+    progress_label: Optional[str] = None,
+) -> ExperimentResults:
+    """Run final sequential experiments using optimal GA parameters.
+
+    Returns a structured dictionary with aggregated statistics for BT, SA, and GA.
+    Expected shape used elsewhere in the module:
+    results = {
+        "BT": {N: {"solution_found": bool, "nodes": int, "time": float}},
+        "SA": {N: {...}},
+        "GA": {N: {...}},
+    }
     """
-    Esegue esperimenti finali con parametri GA ottimali (versione sequenziale).
-    
-    Per ogni N:
-    1. Esegue Backtracking (1 volta, deterministico)
-    2. Esegue SA (runs_sa volte, stocastico)
-    3. Esegue GA (runs_ga volte, stocastico) con parametri già ottimizzati
-    
-    Args:
-        N_values: liste dimensioni da testare [8, 16, 24, ...]
-        runs_sa: numero run indipendenti per SA
-        runs_ga: numero run indipendenti per GA
-        bt_time_limit: limite tempo per BT (None = illimitato)
-        fitness_mode: fitness function per GA ("F1", "F2", ...)
-        best_ga_params_for_N: dict {N: parametri_ottimali} dal tuning
-        
-    Returns:
-        dict: risultati strutturati
-        {
-            "BT": {N: {"solution_found": bool, "nodes": int, "time": float}},
-            "SA": {N: {"success_rate": float, "avg_steps_success": float, "avg_time_success": float}},
-            "GA": {N: {"success_rate": float, "avg_gen_success": float, "avg_time_success": float, ...}}
-        }
-    """
-    results = {"BT": {}, "SA": {}, "GA": {}}
+    results = cast(ExperimentResults, {"BT": {}, "SA": {}, "GA": {}})
 
     progress = ProgressPrinter(len(N_values), progress_label) if progress_label else None
 
@@ -748,8 +877,7 @@ def run_experiments_with_best_ga(
 
         # ----- SIMULATED ANNEALING (stocastico) -----
         sa_runs = []
-        max_iter_sa = 2000 + 200 * N  # iterazioni scalabili con N
-        
+        max_iter_sa = 2000 + 200 * N
         for _ in range(runs_sa):
             s, steps, tt, bestc, evals, timeout = sa_nqueens(
                 N, max_iter=max_iter_sa, T0=1.0, alpha=0.995, time_limit=SA_TIME_LIMIT
@@ -763,7 +891,6 @@ def run_experiments_with_best_ga(
                 "timeout": timeout,
             })
 
-        # Calcola statistiche aggregate SA con funzione avanzata
         sa_stats = compute_grouped_statistics(sa_runs, 'success')
 
         results["SA"][N] = {
@@ -774,32 +901,27 @@ def run_experiments_with_best_ga(
             "successes": sa_stats['successes'],
             "failures": sa_stats['failures'],
             "timeouts": sa_stats['timeouts'],
-            
-            # Statistiche complete per successi
+            # Statistiche per successi
             "success_steps": sa_stats.get('success_steps', {}),
             "success_time": sa_stats.get('success_time', {}),
             "success_evals": sa_stats.get('success_evals', {}),
             "success_best_conflicts": sa_stats.get('success_best_conflicts', {}),
-            
-            # Statistiche complete per timeout
+            # Statistiche per timeout
             "timeout_steps": sa_stats.get('timeout_steps', {}),
             "timeout_time": sa_stats.get('timeout_time', {}),
             "timeout_evals": sa_stats.get('timeout_evals', {}),
             "timeout_best_conflicts": sa_stats.get('timeout_best_conflicts', {}),
-            
-            # Statistiche complete per fallimenti  
+            # Statistiche per fallimenti
             "failure_steps": sa_stats.get('failure_steps', {}),
             "failure_time": sa_stats.get('failure_time', {}),
             "failure_evals": sa_stats.get('failure_evals', {}),
             "failure_best_conflicts": sa_stats.get('failure_best_conflicts', {}),
-            
-            # Statistiche per tutti i run
+            # Statistiche complessive
             "all_steps": sa_stats.get('all_steps', {}),
             "all_time": sa_stats.get('all_time', {}),
             "all_evals": sa_stats.get('all_evals', {}),
             "all_best_conflicts": sa_stats.get('all_best_conflicts', {}),
-            
-            # Dati grezzi per analisi dettagliate
+            # Raw
             "raw_runs": sa_runs.copy(),
         }
 
@@ -832,9 +954,7 @@ def run_experiments_with_best_ga(
                 "timeout": timeout,
             })
 
-        # Calcola statistiche aggregate GA con funzione avanzata
         ga_stats = compute_grouped_statistics(ga_runs, 'success')
-
         results["GA"][N] = {
             "success_rate": ga_stats['success_rate'],
             "timeout_rate": ga_stats['timeout_rate'],
@@ -843,39 +963,33 @@ def run_experiments_with_best_ga(
             "successes": ga_stats['successes'],
             "failures": ga_stats['failures'],
             "timeouts": ga_stats['timeouts'],
-            
-            # Statistiche complete per successi
+            # Statistiche per successi
             "success_gen": ga_stats.get('success_gen', {}),
             "success_time": ga_stats.get('success_time', {}),
             "success_evals": ga_stats.get('success_evals', {}),
             "success_best_conflicts": ga_stats.get('success_best_conflicts', {}),
-            
-            # Statistiche complete per timeout
+            # Statistiche per timeout
             "timeout_gen": ga_stats.get('timeout_gen', {}),
             "timeout_time": ga_stats.get('timeout_time', {}),
             "timeout_evals": ga_stats.get('timeout_evals', {}),
             "timeout_best_conflicts": ga_stats.get('timeout_best_conflicts', {}),
-            
-            # Statistiche complete per fallimenti  
+            # Statistiche per fallimenti
             "failure_gen": ga_stats.get('failure_gen', {}),
             "failure_time": ga_stats.get('failure_time', {}),
             "failure_evals": ga_stats.get('failure_evals', {}),
             "failure_best_conflicts": ga_stats.get('failure_best_conflicts', {}),
-            
-            # Statistiche per tutti i run
+            # Statistiche complessive
             "all_gen": ga_stats.get('all_gen', {}),
             "all_time": ga_stats.get('all_time', {}),
             "all_evals": ga_stats.get('all_evals', {}),
             "all_best_conflicts": ga_stats.get('all_best_conflicts', {}),
-            
-            # Salva anche i parametri GA utilizzati per questo N
+            # Parametri GA
             "pop_size": pop_size,
             "max_gen": max_gen,
             "pm": pm,
             "pc": pc,
             "tournament_size": tsize,
-            
-            # Dati grezzi per analisi dettagliate
+            # Raw
             "raw_runs": ga_runs.copy(),
         }
 
@@ -883,36 +997,30 @@ def run_experiments_with_best_ga(
 
 
 def run_experiments_with_best_ga_parallel(
-    N_values,
-    runs_sa,
-    runs_ga,
-    bt_time_limit,
-    fitness_mode,
-    best_ga_params_for_N,
-    progress_label=None,
-):
-    """
-    Versione parallela di run_experiments_with_best_ga.
-    
-    Parallelizza i run multipli di SA e GA per ottenere speedup significativo.
-    BT rimane seriale perché è deterministico (1 sola esecuzione) e già veloce.
-    
-    Vantaggi parallelizzazione:
-    - SA: runs_sa esperimenti indipendenti → speedup ~cores utilizzati
-    - GA: runs_ga esperimenti indipendenti → speedup ~cores utilizzati
-    - Tempo totale ≈ tempo_bt + max(tempo_sa, tempo_ga) / cores
-    
+    N_values: List[int],
+    runs_sa: int,
+    runs_ga: int,
+    bt_time_limit: Optional[float],
+    fitness_mode: str,
+    best_ga_params_for_N: Dict[int, Dict[str, Any]],
+    progress_label: Optional[str] = None,
+) -> ExperimentResults:
+    """Parallel version of the final experiments runner.
+
+    Executes SA and GA across multiple processes to achieve significant speedup.
+    Backtracking remains serial (deterministic and fast).
+
     Args:
-        N_values: dimensioni da testare
-        runs_sa, runs_ga: numero run per algoritmo
-        bt_time_limit: limite tempo BT
-        fitness_mode: fitness GA
-        best_ga_params_for_N: parametri ottimali dal tuning
-        
+        N_values: list of board sizes to test
+        runs_sa, runs_ga: number of independent runs per algorithm
+        bt_time_limit: time limit for Backtracking
+        fitness_mode: GA fitness function label
+        best_ga_params_for_N: per-N GA parameters obtained from tuning
+
     Returns:
-        dict: stessa struttura della versione sequenziale
+        dict with the same structure as the sequential runner
     """
-    results = {"BT": {}, "SA": {}, "GA": {}}
+    results = cast(ExperimentResults, {"BT": {}, "SA": {}, "GA": {}})
 
     progress = ProgressPrinter(len(N_values), progress_label) if progress_label else None
 
@@ -929,8 +1037,8 @@ def run_experiments_with_best_ga_parallel(
             "time": t,
         }
 
-        # ----- SIMULATED ANNEALING Parallelo -----
-        print(f"  Eseguendo {runs_sa} run SA in parallelo...")
+        # ----- SIMULATED ANNEALING (parallel) -----
+        print(f"  Running {runs_sa} SA runs in parallel...")
         max_iter_sa = 2000 + 200 * N
         
         # Prepara parametri per tutti i run SA
@@ -996,8 +1104,8 @@ def run_experiments_with_best_ga_parallel(
             "raw_runs": sa_runs.copy(),
         }
 
-        # ----- ALGORITMO GENETICO Parallelo con parametri ottimali -----
-        print(f"  Eseguendo {runs_ga} run GA in parallelo...")
+        # ----- GENETIC ALGORITHM (parallel) with optimal parameters -----
+        print(f"  Running {runs_ga} GA runs in parallel...")
         params = best_ga_params_for_N[N]
         pop_size = params["pop_size"]
         max_gen = params["max_gen"]
@@ -1080,10 +1188,10 @@ def run_experiments_with_best_ga_parallel(
 
 
 # ======================================================
-# Salvataggio CSV e grafici
+# CSV export and charting
 # ======================================================
 
-def save_results_to_csv(results, N_values, fitness_mode, out_dir):
+def save_results_to_csv(results: ExperimentResults, N_values: List[int], fitness_mode: str, out_dir: str) -> None:
     os.makedirs(out_dir, exist_ok=True)
     filename = os.path.join(out_dir, f"results_GA_{fitness_mode}_tuned.csv")
 
@@ -1181,12 +1289,12 @@ def save_results_to_csv(results, N_values, fitness_mode, out_dir):
                 bt["time"],
                 
                 # SA statistiche generali
-                sa["success_rate"],
+                sa.get("success_rate", 0.0),
                 sa.get("timeout_rate", 0),
                 sa.get("failure_rate", 0),
-                sa["total_runs"],
-                sa["successes"], 
-                sa["failures"],
+                sa.get("total_runs", 0),
+                sa.get("successes", 0), 
+                sa.get("failures", 0),
                 sa.get("timeouts", 0),
                 
                 # SA metriche logiche successi
@@ -1206,12 +1314,12 @@ def save_results_to_csv(results, N_values, fitness_mode, out_dir):
                 sa_time_success.get("median", ""),
                 
                 # GA statistiche generali
-                ga["success_rate"],
+                ga.get("success_rate", 0.0),
                 ga.get("timeout_rate", 0),
                 ga.get("failure_rate", 0),
-                ga["total_runs"],
-                ga["successes"],
-                ga["failures"],
+                ga.get("total_runs", 0),
+                ga.get("successes", 0),
+                ga.get("failures", 0),
                 ga.get("timeouts", 0),
                 
                 # GA metriche logiche successi
@@ -1231,18 +1339,22 @@ def save_results_to_csv(results, N_values, fitness_mode, out_dir):
                 ga_time_success.get("median", ""),
                 
                 # GA parametri
-                ga["pop_size"],
-                ga["max_gen"],
-                ga["pm"],
-                ga["pc"],
-                ga["tournament_size"],
+                ga.get("pop_size", 0),
+                ga.get("max_gen", 0),
+                ga.get("pm", 0.0),
+                ga.get("pc", 0.0),
+                ga.get("tournament_size", 0),
             ])
 
-    print(f"CSV salvato: {filename}")
+    print(f"CSV saved: {filename}")
 
 
-def save_raw_data_to_csv(results, N_values, fitness_mode, out_dir):
-    """Salva i dati grezzi di tutti i run individuali per analisi dettagliate"""
+def save_raw_data_to_csv(results: ExperimentResults, N_values: List[int], fitness_mode: str, out_dir: str) -> None:
+    """Save raw per-run data for detailed external analysis.
+
+    Writes separate CSVs for SA, GA, and BT capturing individual run outcomes
+    (success, timeout) and metrics (steps/generations, evaluations, time, etc.).
+    """
     os.makedirs(out_dir, exist_ok=True)
     
     # File per dati grezzi SA
@@ -1281,8 +1393,8 @@ def save_raw_data_to_csv(results, N_values, fitness_mode, out_dir):
                         N, i+1, "GA", run["success"], run["timeout"],
                         run["gen"], run["time"], run["evals"], 
                         run.get("best_fitness", ""), run.get("best_conflicts", ""),
-                        ga_data["pop_size"], ga_data["max_gen"], 
-                        ga_data["pm"], ga_data["pc"], ga_data["tournament_size"]
+                        ga_data.get("pop_size", 0), ga_data.get("max_gen", 0), 
+                        ga_data.get("pm", 0.0), ga_data.get("pc", 0.0), ga_data.get("tournament_size", 0)
                     ])
     
     # File per dati grezzi BT (uno per N)
@@ -1299,14 +1411,18 @@ def save_raw_data_to_csv(results, N_values, fitness_mode, out_dir):
                 N, "BT", bt_data["solution_found"], bt_data["nodes"], bt_data["time"]
             ])
     
-    print(f"Dati grezzi salvati:")
+    print("Raw data saved:")
     print(f"  SA: {sa_filename}")
-    print(f"  GA: {ga_filename}")  
+    print(f"  GA: {ga_filename}")
     print(f"  BT: {bt_filename}")
 
 
-def save_logical_cost_analysis(results, N_values, fitness_mode, out_dir):
-    """Salva analisi focalizzata sui costi logici indipendenti dalla macchina"""
+def save_logical_cost_analysis(results: ExperimentResults, N_values: List[int], fitness_mode: str, out_dir: str) -> None:
+    """Save analysis focused on machine-independent logical costs.
+
+    Includes nodes explored (BT), SA iterations, GA generations, and related
+    success rates, plus timing for reference.
+    """
     os.makedirs(out_dir, exist_ok=True)
     filename = os.path.join(out_dir, f"logical_costs_{fitness_mode}.csv")
     
@@ -1368,7 +1484,7 @@ def save_logical_cost_analysis(results, N_values, fitness_mode, out_dir):
                 bt["nodes"],
                 
                 # SA costi logici
-                sa["success_rate"],
+                sa.get("success_rate", 0.0),
                 sa_all_steps.get("mean", ""),
                 sa_all_steps.get("median", ""),
                 sa_all_evals.get("mean", ""), 
@@ -1377,7 +1493,7 @@ def save_logical_cost_analysis(results, N_values, fitness_mode, out_dir):
                 sa_success_evals.get("mean", ""),
                 
                 # GA costi logici
-                ga["success_rate"],
+                ga.get("success_rate", 0.0),
                 ga_all_gen.get("mean", ""),
                 ga_all_gen.get("median", ""),
                 ga_all_evals.get("mean", ""),
@@ -1391,23 +1507,25 @@ def save_logical_cost_analysis(results, N_values, fitness_mode, out_dir):
                 ga_success_time.get("mean", ""),
             ])
     
-    print(f"Analisi costi logici salvata: {filename}")
+    print(f"Logical cost analysis saved: {filename}")
 
 
-def plot_comprehensive_analysis(results, N_values, fitness_mode, out_dir, raw_runs=None, tuning_data=None):
-    """
-    Genera tutti i grafici richiesti per l'analisi completa degli algoritmi N-Queens
+def plot_comprehensive_analysis(results: ExperimentResults, N_values: List[int], fitness_mode: str, out_dir: str, raw_runs: Optional[Dict[str, Any]] = None, tuning_data: Optional[Dict[str, Any]] = None) -> None:
+    """Generate the full set of charts for a comprehensive analysis.
+
+    Produces success rates, time scaling (log), logical costs, timeout rates,
+    failure quality, and theoretical vs practical correlations for all algorithms.
     """
     os.makedirs(out_dir, exist_ok=True)
     
     # ===========================================
-    # 1. GRAFICI BASE 
+    # 1. BASE CHARTS 
     # ===========================================
     
     # Estrai dati base per tutti gli algoritmi
     bt_sr = [1.0 if results["BT"][N]["solution_found"] else 0.0 for N in N_values]
-    sa_sr = [results["SA"][N]["success_rate"] for N in N_values]
-    ga_sr = [results["GA"][N]["success_rate"] for N in N_values]
+    sa_sr = [cast(float, results["SA"][N].get("success_rate", 0.0) or 0.0) for N in N_values]
+    ga_sr = [cast(float, results["GA"][N].get("success_rate", 0.0) or 0.0) for N in N_values]
     
     bt_timeout = [0.0 for N in N_values]  # BT non ha timeout nei dati attuali
     sa_timeout = [results["SA"][N].get("timeout_rate", 0.0) for N in N_values]
@@ -1418,9 +1536,9 @@ def plot_comprehensive_analysis(results, N_values, fitness_mode, out_dir, raw_ru
     plt.plot(N_values, bt_sr, marker="o", linewidth=2, markersize=8, label="Backtracking")
     plt.plot(N_values, sa_sr, marker="s", linewidth=2, markersize=8, label="Simulated Annealing") 
     plt.plot(N_values, ga_sr, marker="^", linewidth=2, markersize=8, label=f"Genetic Algorithm (F{fitness_mode})")
-    plt.xlabel("N (Dimensione scacchiera)", fontsize=12)
-    plt.ylabel("Tasso di Successo", fontsize=12)
-    plt.title("Tasso di Successo vs Dimensione Problema\n(Mostra affidabilità algoritmi al crescere di N)", fontsize=14)
+    plt.xlabel("N (board size)", fontsize=12)
+    plt.ylabel("Success rate", fontsize=12)
+    plt.title("Success Rate vs Problem Size\n(Algorithm reliability as N grows)", fontsize=14)
     plt.ylim(-0.05, 1.05)
     plt.legend(fontsize=11)
     plt.grid(True, alpha=0.7)
@@ -1438,8 +1556,8 @@ def plot_comprehensive_analysis(results, N_values, fitness_mode, out_dir, raw_ru
     
     # 1.2 Tempo medio vs N (scala logaritmica, solo successi)
     bt_time = [results["BT"][N]["time"] if results["BT"][N]["solution_found"] else 0 for N in N_values]
-    sa_time = [results["SA"][N]["success_time"].get("mean", 0.0) if results["SA"][N]["success_time"] else 0.0 for N in N_values]
-    ga_time = [results["GA"][N]["success_time"].get("mean", 0.0) if results["GA"][N]["success_time"] else 0.0 for N in N_values]
+    sa_time = [cast(float, results["SA"][N].get("success_time", {}).get("mean", 0.0) or 0.0) for N in N_values]
+    ga_time = [cast(float, results["GA"][N].get("success_time", {}).get("mean", 0.0) or 0.0) for N in N_values]
     
     plt.figure(figsize=(12, 8))
     # Filtra valori zero per la scala log
@@ -1451,8 +1569,8 @@ def plot_comprehensive_analysis(results, N_values, fitness_mode, out_dir, raw_ru
     plt.semilogy(N_values, sa_time_plot, marker="s", linewidth=2, markersize=8, label="Simulated Annealing")
     plt.semilogy(N_values, ga_time_plot, marker="^", linewidth=2, markersize=8, label=f"Genetic Algorithm (F{fitness_mode})")
     plt.xlabel("N (Dimensione scacchiera)", fontsize=12)
-    plt.ylabel("Tempo Medio [s] (scala log)", fontsize=12)
-    plt.title("Tempo di Esecuzione vs Dimensione Problema\n(Solo run di successo - evidenzia esplosione computazionale BT)", fontsize=14)
+    plt.ylabel("Average time [s] (log scale)", fontsize=12)
+    plt.title("Execution Time vs Problem Size\n(Successful runs only — highlights BT growth)", fontsize=14)
     plt.legend(fontsize=11)
     plt.grid(True, alpha=0.7)
     plt.xticks(N_values)
@@ -1464,16 +1582,16 @@ def plot_comprehensive_analysis(results, N_values, fitness_mode, out_dir, raw_ru
     
     # 1.3 Costo logico vs N (indipendente dalla macchina)
     bt_nodes = [results["BT"][N]["nodes"] for N in N_values]
-    sa_steps = [results["SA"][N]["success_steps"].get("mean", 0.0) if results["SA"][N]["success_steps"] else 0.0 for N in N_values]
-    ga_gen = [results["GA"][N]["success_gen"].get("mean", 0.0) if results["GA"][N]["success_gen"] else 0.0 for N in N_values]
+    sa_steps = [cast(float, results["SA"][N].get("success_steps", {}).get("mean", 0.0) or 0.0) for N in N_values]
+    ga_gen = [cast(float, results["GA"][N].get("success_gen", {}).get("mean", 0.0) or 0.0) for N in N_values]
     
     plt.figure(figsize=(12, 8))
-    plt.semilogy(N_values, [max(n, 1) for n in bt_nodes], marker="o", linewidth=2, markersize=8, label="BT: Nodi esplorati")
-    plt.semilogy(N_values, [max(s, 1) for s in sa_steps], marker="s", linewidth=2, markersize=8, label="SA: Iterazioni medie")
-    plt.semilogy(N_values, [max(g, 1) for g in ga_gen], marker="^", linewidth=2, markersize=8, label="GA: Generazioni medie")
-    plt.xlabel("N (Dimensione scacchiera)", fontsize=12)
-    plt.ylabel("Costo Logico (scala log)", fontsize=12)
-    plt.title("Costo Computazionale Teorico vs Dimensione\n(Scalabilità indipendente dall'hardware)", fontsize=14)
+    plt.semilogy(N_values, [max(n, 1) for n in bt_nodes], marker="o", linewidth=2, markersize=8, label="BT: Explored nodes")
+    plt.semilogy(N_values, [max(s, 1) for s in sa_steps], marker="s", linewidth=2, markersize=8, label="SA: Average iterations")
+    plt.semilogy(N_values, [max(g, 1) for g in ga_gen], marker="^", linewidth=2, markersize=8, label="GA: Average generations")
+    plt.xlabel("N (board size)", fontsize=12)
+    plt.ylabel("Logical cost (log scale)", fontsize=12)
+    plt.title("Theoretical Computational Cost vs Problem Size\n(Hardware-independent scalability)", fontsize=14)
     plt.legend(fontsize=11)
     plt.grid(True, alpha=0.7)
     plt.xticks(N_values)
@@ -1484,15 +1602,15 @@ def plot_comprehensive_analysis(results, N_values, fitness_mode, out_dir, raw_ru
     print(f"Saved logical-cost chart: {fname}")
     
     # 1.4 Valutazioni di fitness vs N (SA vs GA)
-    sa_evals = [results["SA"][N]["success_evals"].get("mean", 0.0) if results["SA"][N]["success_evals"] else 0.0 for N in N_values]
-    ga_evals = [results["GA"][N]["success_evals"].get("mean", 0.0) if results["GA"][N]["success_evals"] else 0.0 for N in N_values]
+    sa_evals = [cast(float, results["SA"][N].get("success_evals", {}).get("mean", 0.0) or 0.0) for N in N_values]
+    ga_evals = [cast(float, results["GA"][N].get("success_evals", {}).get("mean", 0.0) or 0.0) for N in N_values]
     
     plt.figure(figsize=(12, 8))
-    plt.semilogy(N_values, [max(e, 1) for e in sa_evals], marker="s", linewidth=2, markersize=8, label="SA: Valutazioni conflitti")
-    plt.semilogy(N_values, [max(e, 1) for e in ga_evals], marker="^", linewidth=2, markersize=8, label=f"GA-F{fitness_mode}: Valutazioni fitness")
-    plt.xlabel("N (Dimensione scacchiera)", fontsize=12)
-    plt.ylabel("Valutazioni Funzione Obiettivo (scala log)", fontsize=12)
-    plt.title("Costo Puro in Chiamate alla Funzione Obiettivo\n(Misura il carico computazionale di valutazione)", fontsize=14)
+    plt.semilogy(N_values, [max(e, 1) for e in sa_evals], marker="s", linewidth=2, markersize=8, label="SA: Conflict evaluations")
+    plt.semilogy(N_values, [max(e, 1) for e in ga_evals], marker="^", linewidth=2, markersize=8, label=f"GA-F{fitness_mode}: Fitness evaluations")
+    plt.xlabel("N (board size)", fontsize=12)
+    plt.ylabel("Objective evaluations (log scale)", fontsize=12)
+    plt.title("Pure Objective Evaluation Cost\n(Computational burden of evaluations)", fontsize=14)
     plt.legend(fontsize=11)
     plt.grid(True, alpha=0.7)
     plt.xticks(N_values)
@@ -1510,9 +1628,9 @@ def plot_comprehensive_analysis(results, N_values, fitness_mode, out_dir, raw_ru
     plt.figure(figsize=(12, 8))
     plt.plot(N_values, sa_timeout, marker="s", linewidth=2, markersize=8, label="SA: Timeout rate")
     plt.plot(N_values, ga_timeout, marker="^", linewidth=2, markersize=8, label=f"GA-F{fitness_mode}: Timeout rate")
-    plt.xlabel("N (Dimensione scacchiera)", fontsize=12)
-    plt.ylabel("Tasso di Timeout", fontsize=12)
-    plt.title("Timeout Rate vs Dimensione Problema\n(Mostra fino a che N l'algoritmo regge entro tempo massimo)", fontsize=14)
+    plt.xlabel("N (board size)", fontsize=12)
+    plt.ylabel("Timeout rate", fontsize=12)
+    plt.title("Timeout Rate vs Problem Size\n(Where algorithms start exceeding the time limit)", fontsize=14)
     plt.ylim(-0.05, 1.05)
     plt.legend(fontsize=11)
     plt.grid(True, alpha=0.7)
@@ -1524,16 +1642,16 @@ def plot_comprehensive_analysis(results, N_values, fitness_mode, out_dir, raw_ru
     print(f"Saved timeout-rate chart: {fname}")
     
     # 2.2 Qualità nei fallimenti (best_conflicts nei run falliti)
-    sa_fail_quality = [results["SA"][N]["failure_best_conflicts"].get("mean", N) if results["SA"][N].get("failure_best_conflicts") else N for N in N_values]
-    ga_fail_quality = [results["GA"][N]["failure_best_conflicts"].get("mean", N) if results["GA"][N].get("failure_best_conflicts") else N for N in N_values]
+    sa_fail_quality = [float(results["SA"][N].get("failure_best_conflicts", {}).get("mean", N) if results["SA"][N].get("failure_best_conflicts") else N) for N in N_values]
+    ga_fail_quality = [float(results["GA"][N].get("failure_best_conflicts", {}).get("mean", N) if results["GA"][N].get("failure_best_conflicts") else N) for N in N_values]
     
     plt.figure(figsize=(12, 8))
     plt.plot(N_values, sa_fail_quality, marker="s", linewidth=2, markersize=8, label="SA: Conflitti medi (fallimenti)")
     plt.plot(N_values, ga_fail_quality, marker="^", linewidth=2, markersize=8, label=f"GA-F{fitness_mode}: Conflitti medi (fallimenti)")
     plt.plot(N_values, [0]*len(N_values), 'k--', alpha=0.5, label="Soluzione ottima (0 conflitti)")
-    plt.xlabel("N (Dimensione scacchiera)", fontsize=12)
-    plt.ylabel("Conflitti Medi nei Fallimenti", fontsize=12)
-    plt.title("Qualità delle Soluzioni nei Run Falliti\n(Anche senza successo, quanto ci si avvicina all'ottimo)", fontsize=14)
+    plt.xlabel("N (board size)", fontsize=12)
+    plt.ylabel("Average conflicts in failures", fontsize=12)
+    plt.title("Solution Quality in Failed Runs\n(How close to optimal despite failure)", fontsize=14)
     plt.legend(fontsize=11)
     plt.grid(True, alpha=0.7)
     plt.xticks(N_values)
@@ -1633,9 +1751,11 @@ def plot_comprehensive_analysis(results, N_values, fitness_mode, out_dir, raw_ru
     print(f"Generated {9} base charts for fitness F{fitness_mode}")
 
 
-def plot_fitness_comparison(all_results, N_values, out_dir, raw_runs=None):
-    """
-    Confronto dettagliato tra le diverse fitness functions F1-F6 del GA
+def plot_fitness_comparison(all_results: Dict[str, ExperimentResults], N_values: List[int], out_dir: str, raw_runs: Optional[Dict[str, Any]] = None) -> None:
+    """Compare GA fitness functions (F1–F6) across selected N values.
+
+    Generates success-rate, generation, and time comparisons per fitness,
+    plus trade-off scatter plots and evolution across N.
     """
     os.makedirs(out_dir, exist_ok=True)
     fitness_modes = list(all_results.keys())
@@ -1645,7 +1765,7 @@ def plot_fitness_comparison(all_results, N_values, out_dir, raw_runs=None):
     fitness_colors = {f: colors[i % len(colors)] for i, f in enumerate(fitness_modes)}
     
     # ===========================================
-    # 1. SUCCESS RATE PER FITNESS (a N fisso)
+    # 1. SUCCESS RATE PER FITNESS (fixed N)
     # ===========================================
     
     # Scegli N rappresentativi per l'analisi
@@ -1654,12 +1774,12 @@ def plot_fitness_comparison(all_results, N_values, out_dir, raw_runs=None):
     for N in analysis_N:
         # Bar chart: success rate per fitness
         plt.figure(figsize=(12, 8))
-        success_rates = [all_results[f]["GA"][N]["success_rate"] for f in fitness_modes]
+        success_rates = [cast(float, all_results[f]["GA"][N].get("success_rate", 0.0) or 0.0) for f in fitness_modes]
         
         bars = plt.bar(fitness_modes, success_rates, color=[fitness_colors[f] for f in fitness_modes], alpha=0.8)
         plt.xlabel("Fitness Function", fontsize=12)
-        plt.ylabel("Tasso di Successo", fontsize=12) 
-        plt.title(f"Confronto Success Rate tra Fitness Functions (N={N})\n(Quale fitness converge meglio a parità di dimensione)", fontsize=14)
+        plt.ylabel("Success rate", fontsize=12)
+        plt.title(f"Success Rate Comparison across Fitness Functions (N={N})\n(Which fitness converges better at the same size)", fontsize=14)
         plt.ylim(0, 1.05)
         plt.grid(True, alpha=0.3, axis='y')
         
@@ -1674,7 +1794,7 @@ def plot_fitness_comparison(all_results, N_values, out_dir, raw_runs=None):
         print(f"Saved success-rate comparison for N={N}: {fname}")
         
         # ===========================================
-        # 2. GENERAZIONI MEDIE PER FITNESS
+    # 2. AVERAGE GENERATIONS PER FITNESS
         # ===========================================
         
         plt.figure(figsize=(12, 8))
@@ -1690,8 +1810,8 @@ def plot_fitness_comparison(all_results, N_values, out_dir, raw_runs=None):
                       color=[fitness_colors[f] for f in fitness_modes], 
                       alpha=0.8, capsize=5)
         plt.xlabel("Fitness Function", fontsize=12)
-        plt.ylabel("Generazioni Medie +/- Std", fontsize=12)
-        plt.title(f"Confronto Velocità di Convergenza (N={N})\n(Generazioni necessarie per trovare soluzione)", fontsize=14)
+        plt.ylabel("Average generations +/- std", fontsize=12)
+        plt.title(f"Convergence Speed Comparison (N={N})\n(Generations to reach a solution)", fontsize=14)
         plt.grid(True, alpha=0.3, axis='y')
         
         # Valori sui bar
@@ -1706,7 +1826,7 @@ def plot_fitness_comparison(all_results, N_values, out_dir, raw_runs=None):
         print(f"Saved generation comparison for N={N}: {fname}")
         
         # ===========================================
-        # 3. TEMPO MEDIO PER FITNESS
+    # 3. AVERAGE TIME PER FITNESS
         # ===========================================
         
         plt.figure(figsize=(12, 8))
@@ -1722,8 +1842,8 @@ def plot_fitness_comparison(all_results, N_values, out_dir, raw_runs=None):
                       color=[fitness_colors[f] for f in fitness_modes], 
                       alpha=0.8, capsize=5)
         plt.xlabel("Fitness Function", fontsize=12)
-        plt.ylabel("Tempo Medio [s] +/- Std", fontsize=12)
-        plt.title(f"Confronto Efficienza Temporale (N={N})\n(Trade-off tra successo e velocità)", fontsize=14)
+        plt.ylabel("Average time [s] +/- std", fontsize=12)
+        plt.title(f"Temporal Efficiency Comparison (N={N})\n(Trade-off between success and speed)", fontsize=14)
         plt.grid(True, alpha=0.3, axis='y')
         
         # Valori sui bar
@@ -1754,7 +1874,7 @@ def plot_fitness_comparison(all_results, N_values, out_dir, raw_runs=None):
             gen_means.append(ga_data["success_gen"].get("mean", 0))
             eval_means.append(ga_data["success_evals"].get("mean", 0))
         
-        # Scatter: success rate vs generazioni medie
+        # Scatter: success rate vs average generations
         scatter = plt.scatter(gen_means, success_rates, 
                             c=[fitness_colors[f] for f in fitness_modes], 
                             s=150, alpha=0.8, edgecolors='black', linewidth=2)
@@ -1764,9 +1884,9 @@ def plot_fitness_comparison(all_results, N_values, out_dir, raw_runs=None):
             plt.annotate(f'F{f}', (x, y), xytext=(5, 5), 
                         textcoords='offset points', fontweight='bold', fontsize=12)
         
-        plt.xlabel("Generazioni Medie per Successo", fontsize=12)
-        plt.ylabel("Tasso di Successo", fontsize=12)
-        plt.title(f"Trade-off Qualità vs Costo (N={N})\n(Pareto front: alto successo, basso costo)", fontsize=14)
+        plt.xlabel("Average generations to success", fontsize=12)
+        plt.ylabel("Success rate", fontsize=12)
+        plt.title(f"Quality vs Cost Trade-off (N={N})\n(Pareto front: high success, low cost)", fontsize=14)
         plt.grid(True, alpha=0.7)
         
         # Evidenzia area Pareto-ottima (alto successo, basso costo)
@@ -1787,13 +1907,13 @@ def plot_fitness_comparison(all_results, N_values, out_dir, raw_runs=None):
     
     plt.figure(figsize=(15, 10))
     for f in fitness_modes:
-        ga_sr_all_N = [all_results[f]["GA"][N]["success_rate"] for N in N_values]
+        ga_sr_all_N = [cast(float, all_results[f]["GA"][N].get("success_rate", 0.0) or 0.0) for N in N_values]
         plt.plot(N_values, ga_sr_all_N, marker='o', linewidth=2, markersize=8, 
                 label=f'GA-F{f}', color=fitness_colors[f])
     
-    plt.xlabel("N (Dimensione scacchiera)", fontsize=12)
-    plt.ylabel("Tasso di Successo", fontsize=12)
-    plt.title("Confronto Success Rate: Tutte le Fitness Functions\n(Evoluzione affidabilità al crescere della dimensione)", fontsize=14)
+    plt.xlabel("N (board size)", fontsize=12)
+    plt.ylabel("Success rate", fontsize=12)
+    plt.title("Success Rate Evolution: All Fitness Functions\n(Reliability evolution as size increases)", fontsize=14)
     plt.ylim(-0.05, 1.05)
     plt.legend(fontsize=11, ncol=2)
     plt.grid(True, alpha=0.7)
@@ -1808,10 +1928,8 @@ def plot_fitness_comparison(all_results, N_values, out_dir, raw_runs=None):
     print(f"Generated comparison charts for F1-F6")
 
 
-def plot_and_save(results, N_values, fitness_mode, out_dir):
-    """
-    Wrapper di compatibilità - chiama la nuova funzione completa
-    """
+def plot_and_save(results: ExperimentResults, N_values: List[int], fitness_mode: str, out_dir: str) -> None:
+    """Compatibility wrapper that calls the comprehensive plotting routine."""
     plot_comprehensive_analysis(results, N_values, fitness_mode, out_dir)
 
 
@@ -1819,7 +1937,7 @@ def plot_and_save(results, N_values, fitness_mode, out_dir):
 # 9. Main: versione parallela del tuning + esperimenti finali
 # ======================================================
 
-def main_sequential(fitness_modes=None, skip_tuning=False, config_mgr=None):
+def main_sequential(fitness_modes: Optional[List[str]] = None, skip_tuning: bool = False, config_mgr: Optional[ConfigManager] = None) -> None:
     """Run the sequential pipeline for the selected fitness modes."""
 
     os.makedirs(OUT_DIR, exist_ok=True)
@@ -1903,7 +2021,7 @@ def main_sequential(fitness_modes=None, skip_tuning=False, config_mgr=None):
     print("\nSequential pipeline completed.")
 
 
-def main_parallel(fitness_modes=None, skip_tuning=False, config_mgr=None):
+def main_parallel(fitness_modes: Optional[List[str]] = None, skip_tuning: bool = False, config_mgr: Optional[ConfigManager] = None) -> None:
     """Run the parallel pipeline for the selected fitness modes."""
 
     os.makedirs(OUT_DIR, exist_ok=True)
@@ -2025,7 +2143,7 @@ def main_parallel(fitness_modes=None, skip_tuning=False, config_mgr=None):
     print(f"Worker processes used: {NUM_PROCESSES}")
 
 
-def main_concurrent_tuning(fitness_modes=None, skip_tuning=False, config_mgr=None):
+def main_concurrent_tuning(fitness_modes: Optional[List[str]] = None, skip_tuning: bool = False, config_mgr: Optional[ConfigManager] = None) -> None:
     """Run concurrent tuning and experiments across the selected fitness modes."""
 
     os.makedirs(OUT_DIR, exist_ok=True)
@@ -2139,9 +2257,10 @@ def main_concurrent_tuning(fitness_modes=None, skip_tuning=False, config_mgr=Non
     print(f"Total time: {total_time:.1f}s ({total_time/60:.1f} minutes)")
     print(f"Fitness processed: {len(selected_fitness)}")
 
-def plot_statistical_analysis(all_results, N_values, out_dir, raw_runs=None):
-    """
-    Grafici statistici con boxplot e analisi della variabilità
+def plot_statistical_analysis(all_results: Dict[str, ExperimentResults], N_values: List[int], out_dir: str, raw_runs: Optional[Dict[int, Dict[str, Any]]] = None) -> None:
+    """Statistical charts: boxplots and variability analysis.
+
+    Requires raw per-run data for meaningful distribution plots.
     """
     os.makedirs(out_dir, exist_ok=True)
     
@@ -2301,10 +2420,8 @@ def plot_statistical_analysis(all_results, N_values, out_dir, raw_runs=None):
     print("Analisi statistica completata")
 
 
-def plot_tuning_analysis(tuning_data, fitness_modes, N_values, out_dir):
-    """
-    Analisi dei dati di tuning GA con heatmap e scatter plots
-    """
+def plot_tuning_analysis(tuning_data: Dict[str, Dict[int, List[Dict[str, Any]]]], fitness_modes: List[str], N_values: List[int], out_dir: str) -> None:
+    """Visual analysis of GA tuning data (heatmaps and scatter plots)."""
     if not tuning_data:
         print("Dati tuning non disponibili")
         return
@@ -2451,10 +2568,8 @@ def plot_tuning_analysis(tuning_data, fitness_modes, N_values, out_dir):
     print("Analisi tuning completata")
 
 
-def save_tuning_results(best_params_for_N, fitness_mode, out_dir):
-    """
-    Salva i risultati del tuning in un CSV
-    """
+def save_tuning_results(best_params_for_N: Dict[int, Dict[str, Any]], fitness_mode: str, out_dir: str) -> None:
+    """Save tuning results for one fitness mode to a CSV file."""
     filename = os.path.join(out_dir, f"tuning_GA_F{fitness_mode}.csv")
     
     with open(filename, "w", newline="") as f:
@@ -2480,16 +2595,36 @@ def save_tuning_results(best_params_for_N, fitness_mode, out_dir):
     print(f"Risultati tuning GA-F{fitness_mode} salvati: {filename}")
 
 
-def run_quick_regression_tests():
-    """Run lightweight deterministic checks for BT, SA, GA, and CSV generation."""
+def run_quick_regression_tests() -> None:
+    """Run lightweight deterministic checks for all BT solvers, SA, GA, and CSV generation.
 
-    print("Running quick regression tests (N=8)...")
+    - Discovers all functions in `nqueens.backtracking` named `bt_nqueens_*` and tests them on N=8.
+    - Runs a short SA and GA check with fixed seeds.
+    - Generates a minimal CSV via `run_experiments_with_best_ga` to verify I/O path.
+    """
 
-    random.seed(42)
-    solution, nodes, elapsed = bt_nqueens_first(8, time_limit=5.0)
-    if solution is None:
-        raise AssertionError("Backtracking failed to find a solution for N=8.")
-    print(f"  Backtracking: solution found with {nodes} nodes in {elapsed:.4f}s")
+    print("Running quick regression tests (N=8) across all algorithms...")
+
+    # Backtracking: discover and test all current and future solvers
+    import nqueens.backtracking as bt_mod
+    bt_solvers = [(name, fn) for name, fn in inspect.getmembers(bt_mod, inspect.isfunction) if name.startswith("bt_nqueens_")]
+    if not bt_solvers:
+        raise AssertionError("No backtracking solvers discovered (expected functions named 'bt_nqueens_*').")
+
+    # Sort for stable output
+    bt_solvers.sort(key=lambda x: x[0])
+
+    for name, solver in bt_solvers:
+        random.seed(42)
+        try:
+            solution, nodes, elapsed = solver(8, time_limit=5.0)
+        except TypeError:
+            solution, nodes, elapsed = solver(8, 5.0)
+        if solution is None:
+            raise AssertionError(f"{name} failed to find a solution for N=8.")
+        if not isinstance(nodes, int) or nodes <= 0:
+            raise AssertionError(f"{name} returned invalid nodes count: {nodes}.")
+        print(f"  [BT] {name}: solution found, nodes={nodes}, time={elapsed:.4f}s")
 
     random.seed(42)
     sa_success, _, sa_time, _, _, sa_timeout = sa_nqueens(
@@ -2545,15 +2680,15 @@ def run_quick_regression_tests():
 
 # Alias per compatibilità con il main
 def run_experiments_parallel(
-    N_values,
-    runs_bt,
-    runs_sa,
-    runs_ga,
-    bt_time_limit,
-    fitness_mode,
-    best_ga_params_for_N,
-    progress_label=None,
-):
+    N_values: List[int],
+    runs_bt: int,
+    runs_sa: int,
+    runs_ga: int,
+    bt_time_limit: Optional[float],
+    fitness_mode: str,
+    best_ga_params_for_N: Dict[int, Dict[str, Any]],
+    progress_label: Optional[str] = None,
+) -> ExperimentResults:
     """
     Wrapper per run_experiments_with_best_ga_parallel per compatibilità
     """

@@ -1,4 +1,31 @@
-"""Simulated Annealing solver for the N-Queens problem."""
+"""Simulated Annealing solver for the N-Queens problem.
+
+This module implements a standard Simulated Annealing (SA) approach to search
+for a conflict-free placement of N queens. The configuration is a length-N list
+``board[col] = row``. At each step, a random column is selected and its row is
+proposed to mutate. The move is accepted if it improves the objective or with
+Metropolis probability otherwise.
+
+Contract (public API)
+---------------------
+- Input: problem size ``size >= 1`` and SA hyperparameters ``max_iter``,
+  initial temperature ``T0``, and cooling factor ``alpha``.
+- Output: a 6-tuple ``SAResult`` summarizing the run:
+    (success, iterations, elapsed_seconds, best_conflicts, evaluations, timeout)
+
+Where:
+- success: True when a conflict-free board was found, False otherwise.
+- iterations: number of iterations executed when the run ended.
+- elapsed_seconds: wall time measured via ``perf_counter()``.
+- best_conflicts: best (lowest) conflict count observed.
+- evaluations: number of conflict evaluations performed.
+- timeout: True when ended due to ``time_limit``.
+
+Determinism
+-----------
+SA is stochastic. For reproducibility, set the Python ``random`` seed before
+invocation.
+"""
 
 from __future__ import annotations
 
@@ -20,7 +47,34 @@ def sa_nqueens(
     alpha: float = 0.995,
     time_limit: Optional[float] = None,
 ) -> SAResult:
-    """Run simulated annealing and return the execution summary."""
+    """Run Simulated Annealing to minimize conflicts in the N-Queens problem.
+
+    Parameters
+    ----------
+    size : int
+        Board dimension N.
+    max_iter : int, default 20000
+        Maximum number of iterations.
+    T0 : float, default 1.0
+        Initial temperature.
+    alpha : float, default 0.995
+        Geometric cooling factor; temperature is updated as ``T *= alpha``.
+    time_limit : float | None
+        Optional wall-clock time limit in seconds.
+
+    Returns
+    -------
+    SAResult
+        Tuple (success, iterations, elapsed, best_conflicts, evaluations, timeout).
+
+    Notes
+    -----
+    - Objective: minimize the number of pairwise conflicts; zero indicates a valid solution.
+    - Move generation: pick a column uniformly and propose a new random row.
+    - Acceptance: accept improvements (``delta <= 0``) or with probability
+      ``exp(-delta / T)`` otherwise.
+    - Cooling: temperature decays multiplicatively by ``alpha`` after each iteration.
+    """
     board = [random.randrange(size) for _ in range(size)]
     current_cost = conflicts(board)
     best_cost = current_cost
@@ -35,6 +89,7 @@ def sa_nqueens(
         if time_limit is not None and (perf_counter() - start) > time_limit:
             return False, iteration, perf_counter() - start, best_cost, evaluations, True
 
+        # Propose a random single-column change
         column = random.randrange(size)
         old_row = board[column]
         new_row = random.randrange(size)
@@ -55,6 +110,7 @@ def sa_nqueens(
         if current_cost == 0:
             return True, iteration, perf_counter() - start, 0, evaluations, False
 
+        # Geometric cooling schedule
         temperature *= alpha
 
     return False, max_iter, perf_counter() - start, best_cost, evaluations, False
