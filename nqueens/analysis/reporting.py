@@ -1,14 +1,23 @@
-"""CSV export utilities for experiment outputs (aggregates and raw runs).
+"""Reporting utilities: CSV exports and a human-readable running log.
 
-These helpers materialize concise CSV summaries as well as full per-run raw
-data for downstream analysis or spreadsheet inspection. Filenames include the
-GA fitness label to disambiguate multi-fitness experiments.
+This module provides two families of outputs:
+
+- CSV writers producing compact per-N aggregates as well as full raw-run dumps
+    for SA, GA, and BT. These files are suitable for downstream analysis,
+    spreadsheets, or external tools. Filenames are consistently suffixed with
+    an optional run tag and/or datestamp according to ``settings``.
+- An append-only Linux-style text log (``running.log``) written inside
+    ``settings.OUT_DIR`` that records each pipeline invocation as a single line
+    of key=value pairs, starting with an ISO timestamp. This log is optimized for
+    quick inspection via tools like ``tail`` and ``grep``.
 """
 from __future__ import annotations
 
 import csv
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
+from datetime import datetime
+import json
 from . import settings
 
 from .stats import ExperimentResults
@@ -77,6 +86,15 @@ def _build_suffix(results: ExperimentResults, N_values: List[int]) -> str:
             alg_parts.append("GA")
         if alg_parts:
             parts.append("-".join(alg_parts))
+    # Optional run tag
+    run_tag = getattr(settings, "RUN_TAG", None)
+    if run_tag:
+        parts.append(str(run_tag))
+    # Optional datestamp
+    if getattr(settings, "DATE_IN_FILENAMES", False):
+        run_id = getattr(settings, "RUN_ID", None)
+        if run_id:
+            parts.append(str(run_id))
     return ("_" + "_".join(parts)) if parts else ""
 
 
@@ -576,3 +594,98 @@ def save_logical_cost_analysis(results: ExperimentResults, N_values: List[int], 
             ])
 
     print(f"Logical cost analysis saved: {filename}")
+
+
+# ---------------- Running log (append-only) ---------------------------------
+
+def append_running_log(
+    *,
+    start_time: datetime,
+    end_time: datetime,
+    mode: str,
+    cli_args: str,
+    algorithms: Optional[List[str]],
+    fitness_modes: Optional[List[str]],
+    bt_solvers: Optional[List[str]],
+    n_values: List[int],
+    tune: bool,
+    config_path: Optional[str],
+    interrupted: bool,
+) -> str:
+    """Append a single, human-readable run record to a Linux-style log file.
+
+    Behavior
+    - Appends one line to ``running.log`` under ``settings.OUT_DIR``.
+    - Each line begins with an ISO timestamp and ``INFO nqueens:`` followed by
+      concise ``key=value`` pairs that capture configuration and runtime facts.
+    - The format is stable and grep-friendly; values containing spaces are
+      quoted.
+
+    Parameters
+    - start_time: Wall-clock start time of the pipeline.
+    - end_time: Wall-clock end time of the pipeline.
+    - mode: Execution mode label: ``sequential``, ``parallel``, or ``concurrent``.
+    - cli_args: Raw CLI arguments string (excluding the interpreter).
+    - algorithms: Optional list of enabled algorithms, e.g. ["BT", "SA", "GA"].
+    - fitness_modes: Optional list of GA fitness labels processed (e.g., ["F1"]).
+    - bt_solvers: Optional list of selected BT solver labels.
+    - n_values: List of N sizes processed in this run.
+    - tune: Whether GA tuning was performed in this invocation.
+    - config_path: Path to the configuration file used for this run.
+    - interrupted: True if the run ended via ``KeyboardInterrupt``.
+
+    Returns
+    - Absolute path to the ``running.log`` file.
+
+    Example
+    2025-11-13T09:26:08 INFO nqueens: mode=parallel tag=demo alg=[BT] N=[8,16] \
+        tune=false duration=1.656s interrupted=false run_id=20251113-092606 \
+        out=results_nqueens_tuning procs=31 bt_limit=30.0 sa_limit=30.0 \
+        ga_limit=30.0 exp_timeout=120.0 cli="--mode parallel -a BT ..."
+    """
+    os.makedirs(settings.OUT_DIR, exist_ok=True)
+    log_path = os.path.join(settings.OUT_DIR, "running.log")
+
+    duration_s = (end_time - start_time).total_seconds()
+
+    def _fmt_list(val: Optional[List[Any]]) -> str:
+        if not val:
+            return "[]"
+        try:
+            return "[" + ",".join(str(x) for x in val) + "]"
+        except Exception:
+            return "[" + ",".join(map(str, val)) + "]"
+
+    # Build a concise, grep-friendly single-line entry
+    parts = [
+        f"mode={mode}",
+        f"tag={getattr(settings, 'RUN_TAG', '') or '-'}",
+        f"alg={_fmt_list(algorithms)}",
+        f"fitness={_fmt_list(fitness_modes)}",
+        f"bt_solvers={_fmt_list(bt_solvers)}",
+        f"N={_fmt_list(n_values)}",
+        f"tune={'true' if tune else 'false'}",
+        f"duration={duration_s:.3f}s",
+        f"interrupted={'true' if interrupted else 'false'}",
+        f"run_id={getattr(settings, 'RUN_ID', '')}",
+        f"out={getattr(settings, 'OUT_DIR', '')}",
+        f"procs={getattr(settings, 'NUM_PROCESSES', '')}",
+        f"bt_limit={getattr(settings, 'BT_TIME_LIMIT', '')}",
+        f"sa_limit={getattr(settings, 'SA_TIME_LIMIT', '')}",
+        f"ga_limit={getattr(settings, 'GA_TIME_LIMIT', '')}",
+        f"exp_timeout={getattr(settings, 'EXPERIMENT_TIMEOUT', '')}",
+        f"pop_mult={_fmt_list(getattr(settings, 'POP_MULTIPLIERS', []))}",
+        f"gen_mult={_fmt_list(getattr(settings, 'GEN_MULTIPLIERS', []))}",
+        f"pm_vals={_fmt_list(getattr(settings, 'PM_VALUES', []))}",
+        f"pc={getattr(settings, 'PC_FIXED', '')}",
+        f"tsize={getattr(settings, 'TOURNAMENT_SIZE_FIXED', '')}",
+        f"config=\"{(config_path or '').strip()}\"",
+        f"cli=\"{(cli_args or '').strip()}\"",
+    ]
+
+    line = f"{end_time.isoformat(timespec='seconds')} INFO nqueens: " + " ".join(parts) + "\n"
+
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(line)
+
+    return log_path

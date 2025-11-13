@@ -328,6 +328,7 @@ CLI flags overview:
 
 - --mode {sequential|parallel|concurrent}
 - --fitness, -f: filter fitness functions
+- --run-tag: etichetta opzionale da aggiungere ai nomi dei file e al running_log (es. ID ticket, nota breve)
 - --list: print available algorithms, dynamically discovered BT solvers, and GA fitness modes with short descriptions
 - --config: configuration file path (default: `config.json` alongside `algoanalisys.py`)
 - --quick-test: run quick regression and exit
@@ -745,3 +746,17 @@ For questions, issues, or contributions:
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed version history and updates.
+
+## Run naming and log
+
+- I file prodotti includono un suffisso con data/ora `_YYYYMMDD-HHMMSS` per facilitare l'archiviazione.
+- Opzionalmente puoi aggiungere un tag personalizzato con `--run-tag <etichetta>`: verrà incluso nei nomi dei file e nel log (esempio: `results_BT_myexp_20250101-101500.csv`).
+- Ogni esecuzione appende una riga leggibile umanamente a `results_nqueens_tuning/running.log` (stile Linux). Ogni entry è una singola linea con timestamp ISO e coppie chiave=valore, pensata per tail/grep.
+
+Esempio:
+
+```text
+2025-11-13T09:26:08 INFO nqueens: mode=parallel tag=demo alg=[BT] fitness=[] bt_solvers=[] N=[8,16] tune=false duration=1.656s interrupted=false run_id=20251113-092606 out=results_nqueens_tuning procs=31 bt_limit=30.0 sa_limit=30.0 ga_limit=30.0 exp_timeout=120.0 config="C:\\Devel\\nqueen\\config.json" cli="--mode parallel -a BT -N 8,16 --run-tag demo"
+```
+
+Contiene: modalità, algoritmi/fitness/solver selezionati, N values, limiti di tempo, impostazioni tuning, percorso config, durata, stato interruzione, run_id e run_tag.

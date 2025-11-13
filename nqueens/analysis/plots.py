@@ -1,7 +1,114 @@
 """Visualization utilities for analysis outputs.
 
-Graceful fallback: if matplotlib (or related plotting stack) is not available,
-the public functions print a concise message and return without raising.
+Overview
+--------
+This module contains plotting helpers that generate PNG charts from the
+aggregated experiment results produced by the analysis pipeline. It is designed
+to degrade gracefully: if the plotting stack (matplotlib/numpy, optionally
+seaborn) is unavailable, public functions will emit a short message and return
+without raising so upstream pipelines can continue.
+
+Inputs and data contract
+------------------------
+- The primary input is an ``ExperimentResults`` mapping with three top-level
+    keys, ``"BT"``, ``"SA"``, and ``"GA"``, each containing per-N aggregates.
+- Functions also accept an ordered list of ``N_values`` that determines the
+    x-axis for most charts.
+
+Outputs and naming
+------------------
+- Charts are written as PNG files into ``out_dir``. Filenames are prefixed by a
+    two-digit index (01..09) where applicable for stable ordering and include an
+    optional suffix reflecting algorithm presence, run tag, and date, according to
+    ``nqueens.analysis.settings``.
+
+Notes
+-----
+- The module uses only side effects (file creation, stdout prints); return
+    values are ``None``.
+- Some scatter plots that correlate logical vs practical cost are only emitted
+    in sequential mode to avoid wall-clock noise from parallel execution.
+
+Chart map (filenames → contenuto e significato)
+----------------------------------------------
+Combined (tutti gli algoritmi insieme):
+- 01_success_rate_vs_N.png — Success rate vs N
+    - What: Reliability as problem size grows.
+    - X: N (board size). Y: Success rate in [0, 1].
+    - Metric: successes / total_runs per algorithm; BT is 1.0 when the canonical solver found a solution, else 0.0.
+- 02_time_vs_N_log_scale.png — Avg time (success only, log scale) vs N
+    - What: Practical runtime growth for successful runs only (hardware dependent).
+    - X: N. Y: Average wall-clock time [s] on a log scale.
+    - Metric: mean(success_time) for SA/GA; for BT, time of the successful run or 0 when no success.
+- 03_logical_cost_vs_N.png — Logical cost (BT nodes / SA steps / GA generations) vs N
+    - What: Hardware-independent effort proxy per algorithm.
+    - X: N. Y: Logical cost (log scale): BT explored nodes; SA iterations (steps); GA generations.
+- 04_fitness_evaluations_vs_N.png — Objective evaluations vs N (SA/GA)
+    - What: Pure evaluation burden, often the dominant cost.
+    - X: N. Y: Average number of objective/fitness evaluations (log scale).
+    - Note: Only SA/GA; BT omitted.
+- 05_timeout_rate_vs_N.png — Timeout rate vs N (SA/GA)
+    - What: Where algorithms start exceeding the time budget.
+    - X: N. Y: Timeout fraction in [0, 1]. Only SA/GA.
+- 06_failure_quality_vs_N.png — Average conflicts in failed runs vs N (SA/GA)
+    - What: Solution quality when failing (proximity to optimal, 0 conflicts is optimal).
+    - X: N. Y: Average best-conflicts among failed runs. Only SA/GA.
+- 07_all_theoretical_vs_practical.png — Correlazione costo teorico vs pratico (tutti) (solo in sequential)
+    - What: Overlay of theoretical cost (x) vs practical time (y) for BT/SA/GA.
+    - X: BT nodes / SA steps / GA fitness evaluations. Y: Time [s].
+    - Note: Only meaningful in sequential mode to reduce wall-clock noise.
+- 07_SA_theoretical_vs_practical.png — SA: steps vs time (solo in sequential)
+    - What: Linearity indicates evaluation-cost dominance for SA.
+    - X: SA iterations (steps). Y: Time [s].
+- 08_GA_theoretical_vs_practical.png — GA: evaluations vs time (solo in sequential)
+    - What: Linearity indicates evaluation-cost dominance for GA.
+    - X: GA fitness evaluations. Y: Time [s].
+- 09_BT_theoretical_vs_practical.png — BT: nodes vs time (solo in sequential)
+    - What: Correlates explored nodes with time; near-linearity expected.
+    - X: BT explored nodes. Y: Time [s] (wall-clock).
+- 09b_BT_time_per_node_vs_N.png — BT: time per node vs N (diagnostico, sequential)
+    - What: Diagnostic of proportionality: time-per-node should be roughly flat vs N.
+    - X: N. Y: time/nodes [s/node].
+
+Per algoritmo (solo BT/SA/GA):
+- 01_success_rate_vs_N_[BT|SA|GA].png — Success rate vs N
+    - Same as combined 01, filtered per algorithm.
+- 02_time_vs_N_log_scale_[BT|SA|GA].png — Avg time (success only, log scale) vs N
+    - Same as combined 02, filtered per algorithm.
+- 03_logical_cost_vs_N_[BT|SA|GA].png — Logical cost vs N
+    - Same as combined 03, filtered per algorithm.
+- 04_fitness_evaluations_vs_N_[SA|GA].png — Objective/Fitness evaluations vs N
+    - Same as combined 04, per SA or GA only.
+- 05_timeout_rate_vs_N_[SA|GA].png — Timeout rate vs N
+    - Same as combined 05, per SA or GA only.
+- 06_failure_quality_vs_N_[SA|GA].png — Failure quality vs N
+    - Same as combined 06, per SA or GA only.
+
+Confronto fra fitness (GA):
+- fitness_success_rate_N{N}.png — Success rate per fitness (bar)
+    - What: Which GA fitness function is more reliable at fixed N.
+    - X: Fitness id (F1..F6). Y: Success rate.
+- fitness_generations_N{N}.png — Generazioni: media ± std per fitness (bar)
+    - What: Convergence speed of GA by fitness at fixed N.
+    - X: Fitness id. Y: Mean ± std of generations (success-only).
+- fitness_time_N{N}.png — Tempo: media ± std per fitness (bar)
+    - What: Practical efficiency of GA by fitness at fixed N.
+    - X: Fitness id. Y: Mean ± std of time [s] (success-only).
+- fitness_evolution_all.png — Success rate vs N per fitness (linee)
+    - What: Reliability evolution across N for each fitness function.
+    - X: N. Y: Success rate.
+
+Analisi statistica (raw runs):
+- boxplot_times_N{N}.png — Distribuzione tempi (successi)
+    - What: Spread and outliers of execution time for all algorithms (success-only).
+    - X: Algorithm/Fitness label. Y: Time [s] (log scale).
+- boxplot_iterations_N{N}.png — Distribuzione steps/gen (successi)
+    - What: Spread of logical cost (SA steps, GA generations) across runs.
+    - X: Algorithm/Fitness label. Y: Steps/Generations.
+- histogram_SA_times_N{N}.png — Istogramma tempi SA (se campioni sufficienti)
+    - What: Distribution shape for SA time; mean and ±1σ annotated.
+- histogram_GA_F{F}_times_N{N}.png — Istogramma tempi GA fitness migliore (se campioni sufficienti)
+    - What: Distribution shape for GA time using the best fitness at N; mean and ±1σ annotated.
 """
 from __future__ import annotations
 
@@ -22,6 +129,24 @@ from .stats import ExperimentResults
 
 
 def _detect_presence(results: ExperimentResults, N_values: List[int]) -> tuple[bool, bool, bool]:
+    """Return booleans indicating whether BT/SA/GA data are present.
+
+    Parameters
+    ----------
+    results : ExperimentResults
+        Aggregated results mapping containing optional "BT", "SA", "GA" keys.
+    N_values : List[int]
+        N sizes to probe for presence.
+
+    Returns
+    -------
+    tuple[bool, bool, bool]
+        A triple ``(has_bt, has_sa, has_ga)``.
+
+    Raises
+    ------
+    None
+    """
     has_bt = any(bool(results.get("BT", {}).get(N)) for N in N_values)
     def _has_runs(sub: str) -> bool:
         for N in N_values:
@@ -35,6 +160,24 @@ def _detect_presence(results: ExperimentResults, N_values: List[int]) -> tuple[b
 
 
 def _collect_bt_solver_labels(results: ExperimentResults, N_values: List[int]) -> List[str]:
+    """Collect distinct Backtracking solver labels observed across N.
+
+    Parameters
+    ----------
+    results : ExperimentResults
+        Aggregated results containing the "BT" section.
+    N_values : List[int]
+        Problem sizes to scan for solver labels.
+
+    Returns
+    -------
+    List[str]
+        Distinct solver labels in a stable discovery order.
+
+    Raises
+    ------
+    None
+    """
     labels: List[str] = []
     seen = set()
     for N in N_values:
@@ -53,6 +196,25 @@ def _collect_bt_solver_labels(results: ExperimentResults, N_values: List[int]) -
 
 
 def _build_suffix(results: ExperimentResults, N_values: List[int]) -> str:
+    """Build a filename suffix based on executed algorithms and settings.
+
+    Parameters
+    ----------
+    results : ExperimentResults
+        Aggregated results used to infer which subsystems ran.
+    N_values : List[int]
+        N sizes considered; used to detect presence across entries.
+
+    Returns
+    -------
+    str
+        A leading ``_`` followed by components, or an empty string when no
+        suffixing is configured.
+
+    Raises
+    ------
+    None
+    """
     parts: List[str] = []
     if getattr(settings, "ALG_IN_FILENAMES", False):
         has_bt, has_sa, has_ga = _detect_presence(results, N_values)
@@ -66,11 +228,67 @@ def _build_suffix(results: ExperimentResults, N_values: List[int]) -> str:
             alg_parts.append("GA")
         if alg_parts:
             parts.append("-".join(alg_parts))
+    # Optional run tag
+    run_tag = getattr(settings, "RUN_TAG", None)
+    if run_tag:
+        parts.append(str(run_tag))
+    # Optional datestamp
+    if getattr(settings, "DATE_IN_FILENAMES", False):
+        run_id = getattr(settings, "RUN_ID", None)
+        if run_id:
+            parts.append(str(run_id))
+    return ("_" + "_".join(parts)) if parts else ""
+
+def _date_suffix() -> str:
+    """Return a simple date/time suffix based on settings (or empty).
+
+    Returns
+    -------
+    str
+        A leading ``_`` followed by ``RUN_TAG`` and/or ``RUN_ID`` if enabled;
+        otherwise an empty string.
+
+    Raises
+    ------
+    None
+    """
+    parts: List[str] = []
+    run_tag = getattr(settings, "RUN_TAG", None)
+    if run_tag:
+        parts.append(str(run_tag))
+    if getattr(settings, "DATE_IN_FILENAMES", False):
+        run_id = getattr(settings, "RUN_ID", None)
+        if run_id:
+            parts.append(str(run_id))
     return ("_" + "_".join(parts)) if parts else ""
 def _bt_canonical_entry(results: ExperimentResults, N: int) -> Dict[str, Any]:
+    """Return a canonical BT entry for a given N supporting legacy/new shapes.
+
+    Parameters
+    ----------
+    results : ExperimentResults
+        Aggregated results including the "BT" section.
+    N : int
+        Problem size key.
+
+    Returns
+    -------
+    Dict[str, Any]
+        A single solver entry with at least ``solution_found``, ``nodes``, ``time``.
+
+    Notes
+    -----
+    - Legacy shape: a flat dict at ``results["BT"][N]`` is returned directly.
+    - New shape: a per-solver dict; the function selects a preferred solver
+      (mcv_hybrid > mcv > lcv > first) or falls back to the first available.
+
+    Raises
+    ------
+    None
+    """
     entry = results["BT"][N]
     if isinstance(entry.get("solution_found") if isinstance(entry, dict) else None, bool):
-        return entry  # legacy single-solver structure
+        return cast(Dict[str, Any], entry)  # legacy single-solver structure
     # New per-solver dict: pick preferred solver if available
     priority = ["mcv_hybrid", "mcv", "lcv", "first"]
     for key in priority:
@@ -81,7 +299,7 @@ def _bt_canonical_entry(results: ExperimentResults, N: int) -> Dict[str, Any]:
     return entry[first_key]
 
 try:
-    import seaborn as sns  # noqa: F401
+    import seaborn as sns  # type: ignore  # noqa: F401
 except Exception:
     sns = None  # type: ignore
 
@@ -94,6 +312,36 @@ def plot_comprehensive_analysis(
     raw_runs: Optional[Dict[str, Any]] = None,
     tuning_data: Optional[Dict[str, Any]] = None,
 ) -> None:
+    """Generate a full set of per-algorithm and combined charts.
+
+    Parameters
+    ----------
+    results : ExperimentResults
+        Aggregated per-N summaries for BT/SA/GA produced by the analysis
+        pipeline.
+    N_values : List[int]
+        Ordered list of N values to display on the x-axis.
+    fitness_mode : str
+        Fitness identifier used for GA plots (e.g., "1".."6"); used in labels
+        and filenames when GA data is present.
+    out_dir : str
+        Destination directory; will be created if missing.
+    raw_runs : Optional[Dict[str, Any]], optional
+        Optional raw run records (not strictly required by this function);
+        included for symmetry with other plotting helpers.
+    tuning_data : Optional[Dict[str, Any]], optional
+        Optional tuning metadata; currently unused but accepted for forward
+        compatibility.
+
+    Returns
+    -------
+    None
+        Images are written to ``out_dir``; nothing is returned.
+
+    Raises
+    ------
+    None
+    """
     if not _PLOTS_AVAILABLE:
         print("Plotting skipped: matplotlib not installed.")
         return
@@ -228,11 +476,13 @@ def plot_comprehensive_analysis(
         print(f"Saved timeout-rate chart: {fname}")
 
     sa_fail_quality = [
-        float(results["SA"][N].get("failure_best_conflicts", {}).get("mean", N) if results["SA"][N].get("failure_best_conflicts") else N)
+        (lambda v: float(v) if isinstance(v, (int, float)) else float(N))(results["SA"][N].get("failure_best_conflicts", {}).get("mean"))
+        if has_sa and results["SA"][N].get("failure_best_conflicts") else float(N)
         for N in N_values
     ] if has_sa else [0.0 for _ in N_values]
     ga_fail_quality = [
-        float(results["GA"][N].get("failure_best_conflicts", {}).get("mean", N) if results["GA"][N].get("failure_best_conflicts") else N)
+        (lambda v: float(v) if isinstance(v, (int, float)) else float(N))(results["GA"][N].get("failure_best_conflicts", {}).get("mean"))
+        if has_ga and results["GA"][N].get("failure_best_conflicts") else float(N)
         for N in N_values
     ] if has_ga else [0 for _ in N_values]
 
@@ -254,6 +504,50 @@ def plot_comprehensive_analysis(
         plt.savefig(fname, bbox_inches="tight", dpi=300)
         plt.close()
         print(f"Saved failure-quality chart: {fname}")
+
+    # Combined theoretical vs practical correlation (all algorithms)
+    # Meaningful only in sequential mode (to avoid wall-clock noise)
+    if settings.CURRENT_PIPELINE_MODE == 'sequential':
+        combined_points = 0
+        plt.figure(figsize=(12, 8))
+
+        # SA points
+        if has_sa and any(sa_steps) and any(sa_time):
+            sa_valid = [(s, t) for s, t in zip(sa_steps, sa_time) if s > 0 and t > 0]
+            if sa_valid:
+                xs, ys = zip(*sa_valid)
+                plt.scatter(xs, ys, c='orange', marker='s', s=90, alpha=0.8, label='SA (steps)')
+                combined_points += len(sa_valid)
+
+        # GA points
+        if has_ga and any(ga_evals) and any(ga_time):
+            ga_valid = [(e, t) for e, t in zip(ga_evals, ga_time) if e > 0 and t > 0]
+            if ga_valid:
+                xs, ys = zip(*ga_valid)
+                plt.scatter(xs, ys, c='green', marker='^', s=90, alpha=0.8, label=f'GA-F{fitness_mode} (evals)')
+                combined_points += len(ga_valid)
+
+        # BT points
+        if has_bt and any(bt_nodes) and any(bt_time):
+            bt_valid = [(n, t) for n, t in zip(bt_nodes, bt_time) if n > 0 and t > 0]
+            if bt_valid:
+                xs, ys = zip(*bt_valid)
+                plt.scatter(xs, ys, c='blue', marker='o', s=90, alpha=0.8, label='BT (nodes)')
+                combined_points += len(bt_valid)
+
+        if combined_points > 0:
+            plt.xlabel('Theoretical cost (steps/evals/nodes)', fontsize=12)
+            plt.ylabel('Time [s] (practical cost)', fontsize=12)
+            plt.title('Theoretical vs Practical Cost — All Algorithms\n(Sequential mode for clearer proportionality)', fontsize=14)
+            plt.grid(True, alpha=0.7)
+            plt.legend(fontsize=11)
+
+            fname = os.path.join(out_dir, f"07_all_theoretical_vs_practical{suffix}.png")
+            plt.savefig(fname, bbox_inches='tight', dpi=300)
+            plt.close()
+            print(f"Saved ALL-algorithms theoretical-vs-practical chart: {fname}")
+        else:
+            plt.close()
 
     # SA correlation meaningful in sequential mode only
     if settings.CURRENT_PIPELINE_MODE == 'sequential' and has_sa and any(sa_steps) and any(sa_time):
@@ -553,6 +847,29 @@ def plot_comprehensive_analysis(
 def plot_fitness_comparison(
     all_results: Dict[str, ExperimentResults], N_values: List[int], out_dir: str, raw_runs: Optional[Dict[str, Any]] = None
 ) -> None:
+    """Compare GA performance across fitness functions.
+
+    Parameters
+    ----------
+    all_results : Dict[str, ExperimentResults]
+        Mapping ``fitness_id -> ExperimentResults`` from separate GA runs.
+    N_values : List[int]
+        N sizes to include on plots. A subset may be selected internally for
+        clarity on some charts.
+    out_dir : str
+        Destination directory; will be created if missing.
+    raw_runs : Optional[Dict[str, Any]], optional
+        Optional raw run records for advanced charts; not strictly required.
+
+    Returns
+    -------
+    None
+        Images are written to ``out_dir``; nothing is returned.
+
+    Raises
+    ------
+    None
+    """
     if not _PLOTS_AVAILABLE:
         print("Plotting skipped: matplotlib not installed.")
         return
@@ -583,7 +900,7 @@ def plot_fitness_comparison(
         for bar, sr in zip(bars, success_rates):
             plt.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.01, f"{sr:.3f}", ha="center", va="bottom", fontweight="bold")
 
-        fname = os.path.join(out_dir, f"fitness_success_rate_N{N}.png")
+        fname = os.path.join(out_dir, f"fitness_success_rate_N{N}{_date_suffix()}.png")
         plt.savefig(fname, bbox_inches="tight", dpi=300)
         plt.close()
         print(f"Saved success-rate comparison for N={N}: {fname}")
@@ -593,9 +910,9 @@ def plot_fitness_comparison(
         gen_stds = []
 
         for f in fitness_modes:
-            gen_stats = all_results[f]["GA"][N]["success_gen"]
-            gen_means.append(gen_stats.get("mean", 0))
-            gen_stds.append(gen_stats.get("std", 0))
+            gen_stats = cast(Dict[str, Any], all_results[f]["GA"][N].get("success_gen", {}))
+            gen_means.append(cast(float, gen_stats.get("mean", 0) or 0))
+            gen_stds.append(cast(float, gen_stats.get("std", 0) or 0))
 
         bars = plt.bar(
             fitness_modes, gen_means, yerr=gen_stds, color=[fitness_colors[f] for f in fitness_modes], alpha=0.8, capsize=5
@@ -609,7 +926,7 @@ def plot_fitness_comparison(
             if mean > 0:
                 plt.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + std + 0.5, f"{mean:.1f}+/-{std:.1f}", ha="center", va="bottom", fontsize=10)
 
-        fname = os.path.join(out_dir, f"fitness_generations_N{N}.png")
+        fname = os.path.join(out_dir, f"fitness_generations_N{N}{_date_suffix()}.png")
         plt.savefig(fname, bbox_inches="tight", dpi=300)
         plt.close()
         print(f"Saved generation comparison for N={N}: {fname}")
@@ -619,16 +936,16 @@ def plot_fitness_comparison(
         time_stds = []
 
         for f in fitness_modes:
-            time_stats = all_results[f]["GA"][N]["success_time"]
-            time_means.append(time_stats.get("mean", 0))
-            time_stds.append(time_stats.get("std", 0))
+            time_stats = cast(Dict[str, Any], all_results[f]["GA"][N].get("success_time", {}))
+            time_means.append(cast(float, time_stats.get("mean", 0) or 0))
+            time_stds.append(cast(float, time_stats.get("std", 0) or 0))
 
         bars = plt.bar(
             fitness_modes, time_means, yerr=time_stds, color=[fitness_colors[f] for f in fitness_modes], alpha=0.8, capsize=5
         )
         plt.xlabel("Fitness Function", fontsize=12)
         plt.ylabel("Average time [s] +/- std", fontsize=12)
-        plt.title("Temporal Efficiency Comparison (N={N})\n(Trade-off between success and speed)", fontsize=14)
+        plt.title(f"Temporal Efficiency Comparison (N={N})\n(Trade-off between success and speed)", fontsize=14)
         plt.grid(True, alpha=0.3, axis="y")
 
         for bar, mean, std in zip(bars, time_means, time_stds):
@@ -643,7 +960,7 @@ def plot_fitness_comparison(
                     rotation=0,
                 )
 
-        fname = os.path.join(out_dir, f"fitness_time_N{N}.png")
+        fname = os.path.join(out_dir, f"fitness_time_N{N}{_date_suffix()}.png")
         plt.savefig(fname, bbox_inches="tight", dpi=300)
         plt.close()
         print(f"Saved time comparison for N={N}: {fname}")
@@ -661,7 +978,7 @@ def plot_fitness_comparison(
     plt.grid(True, alpha=0.7)
     plt.xticks(N_values)
 
-    fname = os.path.join(out_dir, f"fitness_evolution_all.png")
+    fname = os.path.join(out_dir, f"fitness_evolution_all{_date_suffix()}.png")
     plt.savefig(fname, bbox_inches="tight", dpi=300)
     plt.close()
     print(f"Saved fitness evolution overview: {fname}")
@@ -673,6 +990,30 @@ def plot_fitness_comparison(
 def plot_statistical_analysis(
     all_results: Dict[str, ExperimentResults], N_values: List[int], out_dir: str, raw_runs: Optional[Dict[int, Dict[str, Any]]] = None
 ) -> None:
+    """Produce boxplots and histograms leveraging raw run distributions.
+
+    Parameters
+    ----------
+    all_results : Dict[str, ExperimentResults]
+        Aggregated summaries per fitness function, used to select the best
+        fitness for additional histograms.
+    N_values : List[int]
+        Set of N values considered; a subset is selected for readability.
+    out_dir : str
+        Destination directory; will be created if missing.
+    raw_runs : Optional[Dict[int, Dict[str, Any]]], optional
+        Raw run data indexed by N (then by "SA" and fitness ids). Required to
+        build distributions; if absent, the function returns early.
+
+    Returns
+    -------
+    None
+        Images are written to ``out_dir``; nothing is returned.
+
+    Raises
+    ------
+    None
+    """
     if not _PLOTS_AVAILABLE:
         print("Plotting skipped: matplotlib not installed.")
         return
@@ -710,7 +1051,8 @@ def plot_statistical_analysis(
                     labels.append(f"GA-F{fitness}")
 
         if time_data:
-            box_plot = plt.boxplot(time_data, labels=labels, patch_artist=True)
+            _plt = cast(Any, plt)
+            box_plot = _plt.boxplot(time_data, labels=labels, patch_artist=True)
             colors = ["#ff7f0e", "#1f77b4", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2"]
             for patch, color in zip(box_plot["boxes"], colors):
                 patch.set_facecolor(color)
@@ -725,7 +1067,7 @@ def plot_statistical_analysis(
             plt.grid(True, alpha=0.3)
             plt.xticks(rotation=45)
 
-            fname = os.path.join(out_dir, f"boxplot_times_N{N}.png")
+            fname = os.path.join(out_dir, f"boxplot_times_N{N}{_date_suffix()}.png")
             plt.savefig(fname, bbox_inches="tight", dpi=300)
             plt.close()
             print(f"Time boxplot N={N}: {fname}")
@@ -748,7 +1090,8 @@ def plot_statistical_analysis(
                     iter_labels.append(f"GA-F{fitness} (gen)")
 
         if iter_data:
-            box_plot = plt.boxplot(iter_data, labels=iter_labels, patch_artist=True)
+            _plt = cast(Any, plt)
+            box_plot = _plt.boxplot(iter_data, labels=iter_labels, patch_artist=True)
             colors = ["#ff7f0e", "#1f77b4", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2"]
             for patch, color in zip(box_plot["boxes"], colors):
                 patch.set_facecolor(color)
@@ -762,7 +1105,7 @@ def plot_statistical_analysis(
             plt.grid(True, alpha=0.3)
             plt.xticks(rotation=45)
 
-            fname = os.path.join(out_dir, f"boxplot_iterations_N{N}.png")
+            fname = os.path.join(out_dir, f"boxplot_iterations_N{N}{_date_suffix()}.png")
             plt.savefig(fname, bbox_inches="tight", dpi=300)
             plt.close()
             print(f"Iterations boxplot N={N}: {fname}")
@@ -785,12 +1128,12 @@ def plot_statistical_analysis(
                 plt.axvline(float(mean_time + std_time), color="red", linestyle=":", alpha=0.7, label=f"+/-1 sigma: {std_time:.3f}s")
                 plt.axvline(float(mean_time - std_time), color="red", linestyle=":", alpha=0.7)
                 plt.legend()
-                fname = os.path.join(out_dir, f"histogram_SA_times_N{N}.png")
+                fname = os.path.join(out_dir, f"histogram_SA_times_N{N}{_date_suffix()}.png")
                 plt.savefig(fname, bbox_inches="tight", dpi=300)
                 plt.close()
                 print(f"SA time histogram N={N}: {fname}")
 
-        best_fitness = min(all_results.keys(), key=lambda f: -all_results[f]["GA"][N]["success_rate"])
+        best_fitness = min(all_results.keys(), key=lambda f: -cast(float, all_results[f]["GA"][N].get("success_rate", 0.0) or 0.0))
         if best_fitness in raw_runs[N]:
             ga_times = [run["time"] for run in raw_runs[N][best_fitness] if run["success"]]
             if len(ga_times) > 5:
@@ -809,7 +1152,7 @@ def plot_statistical_analysis(
                 plt.axvline(float(mean_time + std_time), color="red", linestyle=":", alpha=0.7, label=f"+/-1 sigma: {std_time:.3f}s")
                 plt.axvline(float(mean_time - std_time), color="red", linestyle=":", alpha=0.7)
                 plt.legend()
-                fname = os.path.join(out_dir, f"histogram_GA_F{best_fitness}_times_N{N}.png")
+                fname = os.path.join(out_dir, f"histogram_GA_F{best_fitness}_times_N{N}{_date_suffix()}.png")
                 plt.savefig(fname, bbox_inches="tight", dpi=300)
                 plt.close()
                 print(f"GA-F{best_fitness} time histogram N={N}: {fname}")
@@ -818,6 +1161,28 @@ def plot_statistical_analysis(
 
 
 def plot_and_save(results: ExperimentResults, N_values: List[int], fitness_mode: str, out_dir: str) -> None:
+    """Thin wrapper to generate the comprehensive analysis figures.
+
+    Parameters
+    ----------
+    results : ExperimentResults
+        Aggregated per-N summaries for BT/SA/GA.
+    N_values : List[int]
+        Ordered list of N values to plot.
+    fitness_mode : str
+        Fitness identifier used for GA labeling.
+    out_dir : str
+        Destination directory for the saved figures.
+
+    Returns
+    -------
+    None
+        Images are written to ``out_dir``; nothing is returned.
+
+    Raises
+    ------
+    None
+    """
     if not _PLOTS_AVAILABLE:
         print("Plotting skipped: matplotlib not installed.")
         return

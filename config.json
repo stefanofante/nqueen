@@ -16,7 +16,7 @@
         ],
         "runs_sa_final": 20,
         "runs_ga_final": 20,
-        "runs_bt_final": 1,
+        "runs_bt_final": 5,
         "runs_ga_tuning": 5,
         "output_dir": "results_nqueens_tuning"
     },

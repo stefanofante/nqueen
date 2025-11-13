@@ -18,9 +18,25 @@ from typing import Sequence
 def conflicts(board: Sequence[int]) -> int:
     """Compute the number of conflicting queen pairs in O(N).
 
+    Parameters
+    ----------
+    board : Sequence[int]
+        Board encoding with ``board[col] = row``.
+
+    Returns
+    -------
+    int
+        Number of pairwise conflicts (0 indicates a valid solution).
+
+    Notes
+    -----
     Uses hash maps to count occurrences per row and diagonals and reduce the
     computation from O(N^2) to O(N). Suitable for repeated evaluations inside
     heuristic search algorithms.
+
+    Raises
+    ------
+    None
     """
     n = len(board)
     row_count: Counter[int] = Counter()
@@ -45,8 +61,24 @@ def conflicts(board: Sequence[int]) -> int:
 def conflicts_on2(board: Sequence[int]) -> int:
     """Compute the number of conflicting queen pairs in O(N^2).
 
+    Parameters
+    ----------
+    board : Sequence[int]
+        Board encoding with ``board[col] = row``.
+
+    Returns
+    -------
+    int
+        Number of pairwise conflicts (0 indicates a valid solution).
+
+    Notes
+    -----
     Reference implementation for validation and benchmarking. Prefer
     ``conflicts`` in performance-sensitive contexts.
+
+    Raises
+    ------
+    None
     """
     n = len(board)
     conflicts_count = 0
@@ -60,10 +92,23 @@ def conflicts_on2(board: Sequence[int]) -> int:
 def is_valid_solution(board: Sequence[int]) -> bool:
     """Return True if the board represents a valid N-Queens solution.
 
-    Contract
-    - Input: sequence of length N where board[col] = row (0-based indices)
-    - Valid if: all 0 <= row < N and no pairs of queens attack each other
-    - Implementation: range check + conflicts(board) == 0
+    Parameters
+    ----------
+    board : Sequence[int]
+        Length-N sequence with ``board[col] = row``.
+
+    Returns
+    -------
+    bool
+        True if all rows are within range and no queens attack each other; False otherwise.
+
+    Notes
+    -----
+    Implementation: range check plus ``conflicts(board) == 0``.
+
+    Raises
+    ------
+    None
     """
     n = len(board)
     if n == 0:

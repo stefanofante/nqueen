@@ -1,10 +1,25 @@
 """Command-line interface and high-level pipelines for N-Queens experiments.
 
-This module wires together configuration loading, optional GA tuning, and
-execution of final experiment suites (sequential, parallel, or concurrent
-across multiple fitness functions). It intentionally isolates I/O, argument
-parsing, and progress reporting from the core algorithmic modules so that the
-rest of the codebase remains easy to test programmatically.
+Overview
+This module orchestrates the full analysis workflow while keeping the core
+algorithms isolated and testable. It provides a CLI for running tuning and
+experiments in sequential, parallel, or concurrent modes, and produces CSVs,
+plots, and an append-only running log for traceability.
+
+Flow (high level)
+    [Config/CLI]
+        ↓ apply_configuration
+    [Optional: Tuning]
+        ↓ tune_ga_for_N / tune_all_fitness_parallel
+    [Experiments]
+        ↓ run_experiments_with_best_ga(_parallel)
+    [Reporting]
+        ↓ save_*_to_csv / append_running_log / plot_*
+
+Design notes
+- CLI parsing and side effects (I/O, printing, logging) are kept here.
+- Algorithm implementations live in dedicated modules (backtracking, SA, GA).
+- Plotting gracefully degrades when the stack is unavailable.
 """
 from __future__ import annotations
 
@@ -44,6 +59,7 @@ from .reporting import (
     save_logical_cost_analysis,
     save_raw_data_to_csv,
     save_results_to_csv,
+    append_running_log,
 )
 from .reporting import save_bt_solvers_summary, save_bt_per_solver_results, save_bt_per_solver_raw_data
 from .stats import ProgressPrinter
@@ -53,6 +69,8 @@ from .tuning import (
     tune_ga_for_N_parallel,
 )
 from config_manager import ConfigManager
+from datetime import datetime
+import sys
 from nqueens.backtracking import bt_nqueens_first
 from nqueens.genetic import ga_nqueens
 from nqueens.simulated_annealing import sa_nqueens
@@ -264,7 +282,7 @@ def main_sequential(
     include_bt = (algorithms is None) or ("BT" in algorithms)
     include_sa = (algorithms is None) or ("SA" in algorithms)
     include_ga = (algorithms is None) or ("GA" in algorithms)
-    # Log elenco solver BT disponibili/filtrati
+    # Log available/selected BT solvers (for traceability)
     if include_bt:
         try:
             available_bt = discover_bt_solver_labels()
@@ -472,7 +490,7 @@ def main_parallel(
     include_sa = (algorithms is None) or ("SA" in algorithms)
     include_ga = (algorithms is None) or ("GA" in algorithms)
 
-    # Log elenco solver BT disponibili/filtrati
+    # Log available/selected BT solvers (for traceability)
     if include_bt:
         try:
             available_bt = discover_bt_solver_labels()
@@ -754,7 +772,7 @@ def main_concurrent_tuning(
     include_sa = (algorithms is None) or ("SA" in algorithms)
     include_ga = (algorithms is None) or ("GA" in algorithms)
 
-    # Log elenco solver BT disponibili/filtrati
+    # Log available/selected BT solvers (for traceability)
     if include_bt:
         try:
             available_bt = discover_bt_solver_labels()
@@ -1036,6 +1054,12 @@ def build_arg_parser():
         type=str,
         help="Override N values for this run (comma-separated, e.g., 8,16,24).",
     )
+    parser.add_argument(
+        "--run-tag",
+        type=str,
+        default=None,
+        help="Optional label to append to output filenames and the running log (e.g., a ticket ID or note).",
+    )
     return parser
 
 
@@ -1118,6 +1142,11 @@ def main() -> None:
 
     # Filename suffixing is enabled by default via settings; CLI flags removed per policy.
 
+    # Optional run tag: applied for this invocation only
+    if getattr(args, "run_tag", None):
+        settings.RUN_TAG = str(args.run_tag)
+        print(f"Run tag set: {settings.RUN_TAG}")
+
     # Optional per-run override of N values (non-persistent)
     if getattr(args, "n_values", None):
         try:
@@ -1141,6 +1170,10 @@ def main() -> None:
     # Tuning policy: only on explicit request (--tune). Default: reuse parameters.
     skip_tuning_effective = not getattr(args, "tune", False)
 
+    # Wall-time measurement and running log
+    start_time = datetime.now()
+    interrupted = False
+    log_path_print: Optional[str] = None
     try:
         if args.mode == "sequential":
             main_sequential(selected_fitness, skip_tuning=skip_tuning_effective, config_mgr=config_mgr, validate=args.validate, algorithms=alg_filter, bt_solvers=bt_solver_filter)
@@ -1149,8 +1182,34 @@ def main() -> None:
         else:
             main_concurrent_tuning(selected_fitness, skip_tuning=skip_tuning_effective, config_mgr=config_mgr, validate=args.validate, algorithms=alg_filter, bt_solvers=bt_solver_filter)
     except KeyboardInterrupt:
+        interrupted = True
         print("\nExecution interrupted by user. Cleaning up workers...")
-        raise SystemExit(130) from None
-    except ValueError as exc:
-        print(f"Execution error: {exc}")
-        raise SystemExit(1) from exc
+    finally:
+        end_time = datetime.now()
+        total_s = (end_time - start_time).total_seconds()
+        # Prepare running log meta
+        try:
+            log_path_print = append_running_log(
+                start_time=start_time,
+                end_time=end_time,
+                mode=args.mode,
+                cli_args=" ".join(sys.argv[1:]),
+                algorithms=alg_filter,
+                fitness_modes=selected_fitness if ("GA" in (alg_filter or [])) else None,
+                bt_solvers=bt_solver_filter,
+                n_values=settings.N_VALUES,
+                tune=bool(getattr(args, "tune", False)),
+                config_path=(args.config or default_config_path),
+                interrupted=interrupted,
+            )
+        except Exception as e:
+            log_path_print = None
+            print(f"Warning: failed to append running log: {e}")
+
+        mm = int(total_s // 60)
+        ss = total_s - 60 * mm
+        print(f"Total pipeline wall time: {total_s:.1f}s ({mm}m {ss:.1f}s)")
+        if log_path_print:
+            print(f"Run log appended: {log_path_print}")
+        if interrupted:
+            raise SystemExit(130) from None

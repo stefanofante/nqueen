@@ -83,6 +83,10 @@ def bt_nqueens_first(size: int, time_limit: Optional[float] = None) -> Tuple[Opt
         - nodes_explored: int, number of candidate placements considered.
         - elapsed_seconds: float, total wall time.
 
+    Raises
+    ------
+    None
+
     Determinism and ordering
     ------------------------
     - Columns are assigned in natural order 0..N-1.
@@ -321,6 +325,10 @@ def bt_nqueens_mcv(size: int, time_limit: Optional[float] = None) -> Tuple[Optio
     ----------
     Worst-case exponential; MCV typically lowers branching by exposing dead-ends
     earlier in CSPs like N-Queens.
+
+    Raises
+    ------
+    None
     """
 
     def select_column(
@@ -377,6 +385,10 @@ def bt_nqueens_lcv(size: int, time_limit: Optional[float] = None) -> Tuple[Optio
         - Additional overhead per decision due to scoring (it queries the domains of
             remaining columns), but often a significant reduction in backtracking.
         - Worst-case remains exponential.
+
+        Raises
+        ------
+        None
         """
 
     offset = size - 1
@@ -466,6 +478,10 @@ def bt_nqueens_mcv_hybrid(size: int, time_limit: Optional[float] = None) -> Tupl
     -------
     (solution, nodes_explored, elapsed_seconds)
         See module-level contract. Deterministic for a deterministic selector.
+
+    Raises
+    ------
+    None
     """
 
     # Bound the partial look-ahead to a small number of columns for scalability.

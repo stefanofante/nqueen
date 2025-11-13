@@ -36,6 +36,10 @@ def fitness_f1(board: Sequence[int]) -> float:
     -------
     float
         ``-conflicts(board)`` so that higher fitness corresponds to fewer conflicts.
+
+    Raises
+    ------
+    None
     """
     return -conflicts(board)
 
@@ -44,6 +48,10 @@ def fitness_f2(board: Sequence[int]) -> float:
     """Fitness: number of non-conflicting queen pairs.
 
     The maximum value is ``N*(N-1)/2`` for N queens.
+    
+    Raises
+    ------
+    None
     """
     n = len(board)
     max_pairs = n * (n - 1) // 2
@@ -55,6 +63,10 @@ def fitness_f3(board: Sequence[int]) -> float:
 
     Counts the number of pairs on the same diagonals using a linear term
     for clusters of size > 1.
+
+    Raises
+    ------
+    None
     """
     diag1: Counter[int] = Counter()
     diag2: Counter[int] = Counter()
@@ -80,6 +92,10 @@ def fitness_f4(board: Sequence[int]) -> float:
 
     Starts from the F2 perspective (non-conflicting pairs) and subtracts the
     worst per-queen conflict count to reduce concentration of conflicts.
+
+    Raises
+    ------
+    None
     """
     n = len(board)
     max_pairs = n * (n - 1) // 2
@@ -104,6 +120,10 @@ def fitness_f5(board: Sequence[int]) -> float:
 
     Clusters on the same diagonal incur a squared penalty to more strongly
     penalize larger clusters.
+
+    Raises
+    ------
+    None
     """
     diag1: Counter[int] = Counter()
     diag2: Counter[int] = Counter()
@@ -131,6 +151,15 @@ def fitness_f6(board: Sequence[int], lam: float = 0.3) -> float:
     ----------
     lam : float
         Controls the steepness of the decay with conflicts.
+
+    Returns
+    -------
+    float
+        The exponential fitness value ``exp(-lam * conflicts(board))``.
+
+    Raises
+    ------
+    None
     """
     return math.exp(-lam * conflicts(board))
 
@@ -147,6 +176,11 @@ def get_fitness_function(mode: str) -> Callable[[Sequence[int]], float]:
     -------
     Callable[[Sequence[int]], float]
         The corresponding fitness function.
+
+    Raises
+    ------
+    ValueError
+        If ``mode`` is not one of "F1".."F6".
     """
     mapping = {
         "F1": fitness_f1,

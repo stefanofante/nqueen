@@ -74,6 +74,10 @@ def sa_nqueens(
     - Acceptance: accept improvements (``delta <= 0``) or with probability
       ``exp(-delta / T)`` otherwise.
     - Cooling: temperature decays multiplicatively by ``alpha`` after each iteration.
+
+    Raises
+    ------
+    None
     """
     board = [random.randrange(size) for _ in range(size)]
     current_cost = conflicts(board)

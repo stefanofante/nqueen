@@ -83,6 +83,10 @@ def ga_nqueens(
             conflict checks used to track/report the best individual are not
             included in this counter.
     - If a perfect (0-conflict) solution is found, the run terminates early.
+
+    Raises
+    ------
+    None
     """
     fitness_function = get_fitness_function(fitness_mode)
 

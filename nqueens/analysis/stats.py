@@ -111,13 +111,41 @@ class ExperimentResults(TypedDict):
 
 
 class ProgressPrinter:
-    """Minimal, stdout-only progress reporter for long-running loops."""
+    """Minimal, stdout-only progress reporter for long-running loops.
+
+    Parameters
+    ----------
+    total : int
+        Total number of steps/items expected. Values <= 0 are coerced to 1 to
+        avoid division by zero when reporting percentages.
+    label : str
+        Short label printed in front of the progress counters to provide
+        context (e.g., the current phase or algorithm name).
+    """
 
     def __init__(self, total: int, label: str):
         self.total = max(1, total)
         self.label = label
 
     def update(self, index: int, detail: str = "") -> None:
+        """Print a single-line progress update to stdout.
+
+        Parameters
+        ----------
+        index : int
+            The current 1-based or 0-based index of progress. Values greater
+            than ``total`` are allowed and will print >100%.
+        detail : str, optional
+            Free-form suffix to provide additional context (e.g., current N,
+            fitness, or solver). If empty, no suffix is appended.
+
+        Notes
+        -----
+        - This method is intentionally side-effect only (prints to stdout) and
+          does not persist state.
+        - The percentage is computed as ``index / total * 100`` using the
+          ``total`` value passed to the constructor (coerced to at least 1).
+        """
         percent = (index / self.total) * 100
         suffix = f" - {detail}" if detail else ""
         print(f"[{self.label}] {index}/{self.total} ({percent:.0f}%)" + suffix)
@@ -126,8 +154,28 @@ class ProgressPrinter:
 def compute_detailed_statistics(values: List[float], label: str = "") -> StatsSummary:
     """Compute summary statistics for a numeric sequence.
 
-    Returns a consistent structure with ``None``-filled fields on empty input to
-    simplify downstream CSV writing and plotting.
+    Parameters
+    ----------
+    values : List[float]
+        A list of numeric values to summarize. Non-finite values should be
+        filtered by the caller; this function assumes finite floats.
+    label : str, optional
+        Optional label carried through to help downstream debugging or logging
+        contexts. The value is not used in calculations.
+
+    Returns
+    -------
+    StatsSummary
+        A dictionary-like structure containing count, mean, median, std, min,
+        max, 25th and 75th percentiles (q25, q75), and range. When ``values``
+        is empty, all numeric fields are ``None`` and ``count`` is 0 to keep
+        CSV/plot generation consistent.
+
+    Raises
+    ------
+    None
+        This function does not raise; it returns a ``None``-filled structure on
+        empty input and uses population standard deviation for stability.
     """
     if not values:
         return {
@@ -173,9 +221,33 @@ def compute_grouped_statistics(
 ) -> Dict[str, Any]:
     """Aggregate metrics by outcome groups (success, failure, timeout).
 
-    The input is a list of heterogeneous dictionaries returned by algorithm
-    runners; this function inspects the presence of keys and computes
-    per-group and overall summaries for common metrics.
+    Parameters
+    ----------
+    results_list : List[Dict[str, Any]]
+        A list of per-run result dictionaries produced by the algorithm
+        runners. Dictionaries may be heterogeneous but commonly contain keys
+        like ``time``, ``steps`` (SA), ``nodes`` (BT), ``gen`` (GA),
+        ``evals``, ``best_conflicts``, and boolean flags such as
+        ``success`` and ``timeout``.
+    success_key : str, optional
+        The key to interpret as the success flag (default: ``"success"``).
+
+    Returns
+    -------
+    Dict[str, Any]
+        A dictionary containing rates (``success_rate``, ``timeout_rate``,
+        ``failure_rate``), counters (``total_runs``, ``successes``,
+        ``failures``, ``timeouts``), and detailed statistics for each metric
+        across all runs (``all_<metric>``) and per outcome group
+        (``success_<metric>``, ``timeout_<metric>``, ``failure_<metric>``),
+        where ``<metric>`` spans the keys present among
+        ``["time", "steps", "nodes", "gen", "evals", "best_conflicts"]``.
+
+    Raises
+    ------
+    None
+        This function does not raise; missing metrics are simply omitted from
+        the corresponding summary sections.
     """
     successes = [r for r in results_list if r.get(success_key, False)]
     timeouts = [r for r in results_list if r.get("timeout", False)]

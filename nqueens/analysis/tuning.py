@@ -38,7 +38,12 @@ def run_single_ga_experiment(params: Tuple[int, int, int, float, float, int, str
 def test_parameter_combination_parallel(params: Tuple[int, str, int, int, float, float, int, int]) -> Dict[str, Any]:
     """Evaluate one GA parameter combination using multiple parallel runs.
 
-    Returns aggregate success rate and average generations to success.
+    Parameters
+    - params: Tuple(N, fitness_mode, pop_size, max_gen, pc, pm, tournament_size, runs_tuning).
+
+    Returns
+    - Dict with keys: N, fitness_mode, pop_size, max_gen, pc, pm, tournament_size,
+      success_rate (float), avg_gen_success (float|None).
     """
     N, fitness_mode, pop_size, max_gen, pc, pm, tournament_size, runs_tuning = params
 
@@ -86,9 +91,21 @@ def tune_ga_for_N(
 ) -> Dict[str, Any]:
     """Exhaustive grid search to identify robust GA hyperparameters.
 
-    Iterates over population-size and generation multipliers and mutation rates,
-    evaluating each combination ``runs_tuning`` times. Best candidate is chosen
-    by success-rate, with average successful generations as a tiebreaker.
+    Parameters
+    - N: Board size.
+    - fitness_mode: GA fitness label (e.g., "F1").
+    - pop_multipliers/gen_multipliers: Multipliers to derive pop_size and max_gen (k*N, m*N).
+    - pm_values: Mutation rate candidates.
+    - pc: Fixed crossover probability.
+    - tournament_size: Tournament size for selection.
+    - runs_tuning: Number of runs per combination.
+
+    Returns
+    - Dict with the best candidate fields: N, fitness_mode, pop_size, max_gen, pm, pc,
+      tournament_size, success_rate, avg_gen_success.
+
+    Raises
+    - RuntimeError: If no candidate is evaluated (empty grid).
     """
     best: Optional[Dict[str, Any]] = None
 
@@ -157,7 +174,13 @@ def tune_ga_for_N_parallel(
     tournament_size: int,
     runs_tuning: int = 10,
 ) -> Dict[str, Any]:
-    """Parallel version of GA tuning for a single ``(N, fitness_mode)`` pair."""
+    """Parallel version of GA tuning for a single ``(N, fitness_mode)`` pair.
+
+    Parameters/Returns/Raises
+    - Same semantics as ``tune_ga_for_N``; executes combinations in parallel using
+      up to ``NUM_PROCESSES`` workers and returns the best candidate. Raises
+      RuntimeError if no candidate is produced.
+    """
     print(
         f"  Preparing {len(pop_multipliers) * len(gen_multipliers) * len(pm_values)} parameter combinations..."
     )
@@ -199,7 +222,14 @@ def tune_ga_for_N_parallel(
 def tune_single_fitness(
     params: Tuple[int, str, List[int], List[int], List[float], float, int, int]
 ) -> Tuple[str, Dict[str, Any]]:
-    """Wrapper to tune GA parameters for a single fitness function."""
+    """Wrapper to tune GA parameters for a single fitness function.
+
+    Parameters
+    - params: Tuple(N, fitness_mode, pop_multipliers, gen_multipliers, pm_values, pc, tournament_size, runs_tuning).
+
+    Returns
+    - Pair (fitness_mode, best_params_dict) as returned by ``tune_ga_for_N_parallel``.
+    """
     N, fitness_mode, pop_multipliers, gen_multipliers, pm_values, pc, tournament_size, runs_tuning = params
     return (
         fitness_mode,
@@ -219,7 +249,16 @@ def tune_all_fitness_parallel(
     tournament_size: int,
     runs_tuning: int = 10,
 ) -> Dict[str, Dict[str, Any]]:
-    """Tune GA parameters for all fitness functions concurrently for a given N."""
+    """Tune GA parameters for all fitness functions concurrently for a given N.
+
+    Parameters
+    - N: Board size.
+    - fitness_modes: List of fitness labels to tune (e.g., ["F1", ..., "F6"]).
+    - pop_multipliers/gen_multipliers/pm_values/pc/tournament_size/runs_tuning: See ``tune_ga_for_N``.
+
+    Returns
+    - Dict mapping fitness_mode -> best_params_dict.
+    """
     print(f"Concurrent tuning of {len(fitness_modes)} fitness functions for N={N}")
 
     tuning_params = [
