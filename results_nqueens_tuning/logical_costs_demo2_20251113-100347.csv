@@ -1,3 +1,0 @@
-n,bt_solution_found,bt_nodes_explored,sa_success_rate,sa_steps_mean_all,sa_steps_median_all,sa_evals_mean_all,sa_evals_median_all,sa_steps_mean_success,sa_evals_mean_success,ga_success_rate,ga_gen_mean_all,ga_gen_median_all,ga_evals_mean_all,ga_evals_median_all,ga_gen_mean_success,ga_evals_mean_success,bt_time_seconds,sa_time_mean_success,ga_time_mean_success
-8,1,27,0.0,,,,,,,0.0,,,,,,,0.00017619998834561557,,
-16,1,307,0.0,,,,,,,0.0,,,,,,,0.0022298999974736944,,
