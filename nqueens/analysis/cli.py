@@ -250,6 +250,18 @@ def main_sequential(
     include_bt = (algorithms is None) or ("BT" in algorithms)
     include_sa = (algorithms is None) or ("SA" in algorithms)
     include_ga = (algorithms is None) or ("GA" in algorithms)
+    # Log elenco solver BT disponibili/filtrati
+    if include_bt:
+        try:
+            available_bt = discover_bt_solver_labels()
+            if bt_solvers:
+                selected_bt = [lbl for lbl in available_bt if lbl in bt_solvers]
+            else:
+                selected_bt = available_bt
+            print("BT solvers available: " + (", ".join(available_bt) if available_bt else "none"))
+            print("BT solvers selected:  " + (", ".join(selected_bt) if selected_bt else "none"))
+        except Exception:
+            pass
 
     # Print header once when GA is not included
     if not include_ga:
@@ -442,6 +454,19 @@ def main_parallel(
     include_bt = (algorithms is None) or ("BT" in algorithms)
     include_sa = (algorithms is None) or ("SA" in algorithms)
     include_ga = (algorithms is None) or ("GA" in algorithms)
+
+    # Log elenco solver BT disponibili/filtrati
+    if include_bt:
+        try:
+            available_bt = discover_bt_solver_labels()
+            if bt_solvers:
+                selected_bt = [lbl for lbl in available_bt if lbl in bt_solvers]
+            else:
+                selected_bt = available_bt
+            print("BT solvers available: " + (", ".join(available_bt) if available_bt else "none"))
+            print("BT solvers selected:  " + (", ".join(selected_bt) if selected_bt else "none"))
+        except Exception:
+            pass
 
     if skip_tuning or not include_ga:
         print("\nSkipping GA tuning phase and loading parameters from configuration.")
@@ -707,6 +732,19 @@ def main_concurrent_tuning(
     include_bt = (algorithms is None) or ("BT" in algorithms)
     include_sa = (algorithms is None) or ("SA" in algorithms)
     include_ga = (algorithms is None) or ("GA" in algorithms)
+
+    # Log elenco solver BT disponibili/filtrati
+    if include_bt:
+        try:
+            available_bt = discover_bt_solver_labels()
+            if bt_solvers:
+                selected_bt = [lbl for lbl in available_bt if lbl in bt_solvers]
+            else:
+                selected_bt = available_bt
+            print("BT solvers available: " + (", ".join(available_bt) if available_bt else "none"))
+            print("BT solvers selected:  " + (", ".join(selected_bt) if selected_bt else "none"))
+        except Exception:
+            pass
 
     if skip_tuning or not include_ga:
         print("\nSkipping GA tuning phase and loading parameters from configuration.")
