@@ -6,7 +6,13 @@
             24,
             40,
             60,
-            80
+            80,
+            100,
+            150,
+            200,
+            400,
+            500,
+            600
         ],
         "runs_sa_final": 20,
         "runs_ga_final": 20,
@@ -47,5 +53,522 @@
         "F5",
         "F6"
     ],
-    "optimal_parameters": {}
+    "optimal_parameters": {
+        "F1": {
+            "8": {
+                "pop_size": 64,
+                "max_gen": 320,
+                "pm": 0.10,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "16": {
+                "pop_size": 128,
+                "max_gen": 640,
+                "pm": 0.10,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "24": {
+                "pop_size": 192,
+                "max_gen": 960,
+                "pm": 0.10,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "40": {
+                "pop_size": 320,
+                "max_gen": 1600,
+                "pm": 0.10,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "60": {
+                "pop_size": 240,
+                "max_gen": 1500,
+                "pm": 0.08,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "80": {
+                "pop_size": 320,
+                "max_gen": 2000,
+                "pm": 0.08,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "100": {
+                "pop_size": 400,
+                "max_gen": 2500,
+                "pm": 0.08,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "150": {
+                "pop_size": 450,
+                "max_gen": 3000,
+                "pm": 0.08,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "200": {
+                "pop_size": 500,
+                "max_gen": 3000,
+                "pm": 0.08,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "400": {
+                "pop_size": 400,
+                "max_gen": 3000,
+                "pm": 0.05,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "500": {
+                "pop_size": 400,
+                "max_gen": 3000,
+                "pm": 0.05,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "600": {
+                "pop_size": 400,
+                "max_gen": 3000,
+                "pm": 0.05,
+                "pc": 0.8,
+                "tournament_size": 3
+            }
+        },
+        "F2": {
+            "8": {
+                "pop_size": 64,
+                "max_gen": 320,
+                "pm": 0.10,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "16": {
+                "pop_size": 128,
+                "max_gen": 640,
+                "pm": 0.10,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "24": {
+                "pop_size": 192,
+                "max_gen": 960,
+                "pm": 0.10,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "40": {
+                "pop_size": 320,
+                "max_gen": 1600,
+                "pm": 0.10,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "60": {
+                "pop_size": 240,
+                "max_gen": 1500,
+                "pm": 0.08,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "80": {
+                "pop_size": 320,
+                "max_gen": 2000,
+                "pm": 0.08,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "100": {
+                "pop_size": 400,
+                "max_gen": 2500,
+                "pm": 0.08,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "150": {
+                "pop_size": 450,
+                "max_gen": 3000,
+                "pm": 0.08,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "200": {
+                "pop_size": 500,
+                "max_gen": 3000,
+                "pm": 0.08,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "400": {
+                "pop_size": 400,
+                "max_gen": 3000,
+                "pm": 0.05,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "500": {
+                "pop_size": 400,
+                "max_gen": 3000,
+                "pm": 0.05,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "600": {
+                "pop_size": 400,
+                "max_gen": 3000,
+                "pm": 0.05,
+                "pc": 0.8,
+                "tournament_size": 3
+            }
+        },
+        "F3": {
+            "8": {
+                "pop_size": 64,
+                "max_gen": 320,
+                "pm": 0.10,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "16": {
+                "pop_size": 128,
+                "max_gen": 640,
+                "pm": 0.10,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "24": {
+                "pop_size": 192,
+                "max_gen": 960,
+                "pm": 0.10,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "40": {
+                "pop_size": 320,
+                "max_gen": 1600,
+                "pm": 0.10,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "60": {
+                "pop_size": 240,
+                "max_gen": 1500,
+                "pm": 0.08,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "80": {
+                "pop_size": 320,
+                "max_gen": 2000,
+                "pm": 0.08,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "100": {
+                "pop_size": 400,
+                "max_gen": 2500,
+                "pm": 0.08,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "150": {
+                "pop_size": 450,
+                "max_gen": 3000,
+                "pm": 0.08,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "200": {
+                "pop_size": 500,
+                "max_gen": 3000,
+                "pm": 0.08,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "400": {
+                "pop_size": 400,
+                "max_gen": 3000,
+                "pm": 0.05,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "500": {
+                "pop_size": 400,
+                "max_gen": 3000,
+                "pm": 0.05,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "600": {
+                "pop_size": 400,
+                "max_gen": 3000,
+                "pm": 0.05,
+                "pc": 0.8,
+                "tournament_size": 3
+            }
+        },
+        "F4": {
+            "8": {
+                "pop_size": 64,
+                "max_gen": 320,
+                "pm": 0.10,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "16": {
+                "pop_size": 128,
+                "max_gen": 640,
+                "pm": 0.10,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "24": {
+                "pop_size": 192,
+                "max_gen": 960,
+                "pm": 0.10,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "40": {
+                "pop_size": 320,
+                "max_gen": 1600,
+                "pm": 0.10,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "60": {
+                "pop_size": 240,
+                "max_gen": 1500,
+                "pm": 0.08,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "80": {
+                "pop_size": 320,
+                "max_gen": 2000,
+                "pm": 0.08,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "100": {
+                "pop_size": 400,
+                "max_gen": 2500,
+                "pm": 0.08,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "150": {
+                "pop_size": 450,
+                "max_gen": 3000,
+                "pm": 0.08,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "200": {
+                "pop_size": 500,
+                "max_gen": 3000,
+                "pm": 0.08,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "400": {
+                "pop_size": 400,
+                "max_gen": 3000,
+                "pm": 0.05,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "500": {
+                "pop_size": 400,
+                "max_gen": 3000,
+                "pm": 0.05,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "600": {
+                "pop_size": 400,
+                "max_gen": 3000,
+                "pm": 0.05,
+                "pc": 0.8,
+                "tournament_size": 3
+            }
+        },
+        "F5": {
+            "8": {
+                "pop_size": 64,
+                "max_gen": 320,
+                "pm": 0.10,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "16": {
+                "pop_size": 128,
+                "max_gen": 640,
+                "pm": 0.10,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "24": {
+                "pop_size": 192,
+                "max_gen": 960,
+                "pm": 0.10,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "40": {
+                "pop_size": 320,
+                "max_gen": 1600,
+                "pm": 0.10,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "60": {
+                "pop_size": 240,
+                "max_gen": 1500,
+                "pm": 0.08,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "80": {
+                "pop_size": 320,
+                "max_gen": 2000,
+                "pm": 0.08,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "100": {
+                "pop_size": 400,
+                "max_gen": 2500,
+                "pm": 0.08,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "150": {
+                "pop_size": 450,
+                "max_gen": 3000,
+                "pm": 0.08,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "200": {
+                "pop_size": 500,
+                "max_gen": 3000,
+                "pm": 0.08,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "400": {
+                "pop_size": 400,
+                "max_gen": 3000,
+                "pm": 0.05,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "500": {
+                "pop_size": 400,
+                "max_gen": 3000,
+                "pm": 0.05,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "600": {
+                "pop_size": 400,
+                "max_gen": 3000,
+                "pm": 0.05,
+                "pc": 0.8,
+                "tournament_size": 3
+            }
+        },
+        "F6": {
+            "8": {
+                "pop_size": 64,
+                "max_gen": 320,
+                "pm": 0.10,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "16": {
+                "pop_size": 128,
+                "max_gen": 640,
+                "pm": 0.10,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "24": {
+                "pop_size": 192,
+                "max_gen": 960,
+                "pm": 0.10,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "40": {
+                "pop_size": 320,
+                "max_gen": 1600,
+                "pm": 0.10,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "60": {
+                "pop_size": 240,
+                "max_gen": 1500,
+                "pm": 0.08,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "80": {
+                "pop_size": 320,
+                "max_gen": 2000,
+                "pm": 0.08,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "100": {
+                "pop_size": 400,
+                "max_gen": 2500,
+                "pm": 0.08,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "150": {
+                "pop_size": 450,
+                "max_gen": 3000,
+                "pm": 0.08,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "200": {
+                "pop_size": 500,
+                "max_gen": 3000,
+                "pm": 0.08,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "400": {
+                "pop_size": 400,
+                "max_gen": 3000,
+                "pm": 0.05,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "500": {
+                "pop_size": 400,
+                "max_gen": 3000,
+                "pm": 0.05,
+                "pc": 0.8,
+                "tournament_size": 3
+            },
+            "600": {
+                "pop_size": 400,
+                "max_gen": 3000,
+                "pm": 0.05,
+                "pc": 0.8,
+                "tournament_size": 3
+            }
+        }
+    }
 }

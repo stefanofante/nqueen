@@ -1,7 +1,0 @@
-n,bt_solver,solution_found,nodes_explored,time_seconds
-8,mcv_hybrid,True,27,0.00015612499555572867
-16,mcv_hybrid,True,307,0.0016118750063469633
-24,mcv_hybrid,True,55,0.0015151250117924064
-40,mcv_hybrid,True,40,0.005713374994229525
-80,mcv_hybrid,True,80,0.042660333012463525
-120,mcv_hybrid,True,120,0.14279283299401868

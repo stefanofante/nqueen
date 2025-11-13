@@ -9,6 +9,7 @@ from __future__ import annotations
 import csv
 import os
 from typing import Any, Dict, List
+from . import settings
 
 from .stats import ExperimentResults
 
@@ -30,6 +31,55 @@ def _detect_presence(results: ExperimentResults, N_values: List[int]) -> tuple[b
     return has_bt, has_sa, has_ga
 
 
+def _collect_bt_solver_labels(results: ExperimentResults, N_values: List[int]) -> List[str]:
+    """Collect distinct BT solver labels observed across all N values.
+
+    Returns labels like ['first', 'mcv', 'lcv', 'mcv_hybrid'] in a stable order.
+    """
+    labels: List[str] = []
+    seen = set()
+    for N in N_values:
+        bt_entry = results.get("BT", {}).get(N, {})
+        # Legacy single-entry support
+        if isinstance(bt_entry.get("solution_found") if isinstance(bt_entry, dict) else None, bool):
+            for l in ["mcv_hybrid"]:
+                if l not in seen:
+                    seen.add(l)
+                    labels.append(l)
+        else:
+            for l in bt_entry.keys():
+                if l not in seen:
+                    seen.add(l)
+                    labels.append(l)
+    return labels
+
+
+def _build_suffix(results: ExperimentResults, N_values: List[int]) -> str:
+    """Build an optional filename suffix based on settings and executed algorithms.
+
+    - When ALG_IN_FILENAMES is True, append executed algorithms, including BT solver labels if BT ran.
+    - When RUN_TAG is set, append it as an extra suffix component.
+    Returns an empty string if no suffixing is configured.
+    """
+    parts: List[str] = []
+    if getattr(settings, "ALG_IN_FILENAMES", False):
+        has_bt, has_sa, has_ga = _detect_presence(results, N_values)
+        alg_parts: List[str] = []
+        if has_bt:
+            bt_labels = _collect_bt_solver_labels(results, N_values)
+            if bt_labels:
+                alg_parts.append("BT-" + "+".join(bt_labels))
+            else:
+                alg_parts.append("BT")
+        if has_sa:
+            alg_parts.append("SA")
+        if has_ga:
+            alg_parts.append("GA")
+        if alg_parts:
+            parts.append("-".join(alg_parts))
+    return ("_" + "_".join(parts)) if parts else ""
+
+
 def save_results_to_csv(results: ExperimentResults, N_values: List[int], fitness_mode: str, out_dir: str) -> None:
     """Write compact per-N aggregate metrics for BT/SA/GA to CSV.
 
@@ -38,15 +88,16 @@ def save_results_to_csv(results: ExperimentResults, N_values: List[int], fitness
     """
     os.makedirs(out_dir, exist_ok=True)
     has_bt, has_sa, has_ga = _detect_presence(results, N_values)
+    suffix = _build_suffix(results, N_values)
     if not has_ga:
         if has_bt and has_sa:
-            filename = os.path.join(out_dir, "results_BT_SA.csv")
+            filename = os.path.join(out_dir, f"results_BT_SA{suffix}.csv")
         elif has_sa:
-            filename = os.path.join(out_dir, "results_SA.csv")
+            filename = os.path.join(out_dir, f"results_SA{suffix}.csv")
         else:
-            filename = os.path.join(out_dir, "results_BT.csv")
+            filename = os.path.join(out_dir, f"results_BT{suffix}.csv")
     else:
-        filename = os.path.join(out_dir, f"results_GA_{fitness_mode}_tuned.csv")
+        filename = os.path.join(out_dir, f"results_GA_{fitness_mode}_tuned{suffix}.csv")
 
     with open(filename, "w", newline="") as f:
         writer = csv.writer(f)
@@ -209,10 +260,11 @@ def save_bt_solvers_summary(results: ExperimentResults, N_values: List[int], fit
     if not has_bt:
         # No BT runs present: skip creating summary entirely
         return
+    suffix = _build_suffix(results, N_values)
     if not has_ga:
-        filename = os.path.join(out_dir, "bt_solvers_summary.csv")
+        filename = os.path.join(out_dir, f"bt_solvers_summary{suffix}.csv")
     else:
-        filename = os.path.join(out_dir, f"bt_solvers_summary_{fitness_mode}.csv")
+        filename = os.path.join(out_dir, f"bt_solvers_summary_{fitness_mode}{suffix}.csv")
 
     with open(filename, "w", newline="") as f:
         writer = csv.writer(f)
@@ -224,9 +276,111 @@ def save_bt_solvers_summary(results: ExperimentResults, N_values: List[int], fit
                 writer.writerow([N, "mcv_hybrid", bt_entry["solution_found"], bt_entry["nodes"], bt_entry["time"]])
             else:
                 for label, row in bt_entry.items():
+                    if not isinstance(row, dict):
+                        continue
                     writer.writerow([N, label, row.get("solution_found", False), row.get("nodes", 0), row.get("time", 0.0)])
 
     print(f"BT solvers summary saved: {filename}")
+
+
+def save_bt_per_solver_results(results: ExperimentResults, N_values: List[int], fitness_mode: str, out_dir: str) -> None:
+    """Write one CSV per BT solver with per-N metrics.
+
+    Creates files named `bt_results_<solver>.csv` (or `bt_results_<solver>_<FITNESS>.csv` when GA is present).
+    Each file contains columns: n, solution_found, nodes_explored, time_seconds.
+    Skips entirely when no BT runs are present.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    has_bt, _, has_ga = _detect_presence(results, N_values)
+    if not has_bt:
+        return
+
+    # Collect the set of solver labels observed across all N
+    solver_labels: List[str] = []
+    label_set = set()
+    for N in N_values:
+        bt_entry = results["BT"].get(N, {})
+        if isinstance(bt_entry.get("solution_found") if isinstance(bt_entry, dict) else None, bool):
+            lbls = ["mcv_hybrid"]
+            for l in lbls:
+                if l not in label_set:
+                    label_set.add(l)
+                    solver_labels.append(l)
+        else:
+            for l in bt_entry.keys():
+                if l not in label_set:
+                    label_set.add(l)
+                    solver_labels.append(l)
+
+    suffix = _build_suffix(results, N_values)
+    for label in solver_labels:
+        filename = os.path.join(
+            out_dir,
+            (f"bt_results_{label}_{fitness_mode}{suffix}.csv" if has_ga else f"bt_results_{label}{suffix}.csv"),
+        )
+        with open(filename, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["n", "solution_found", "nodes_explored", "time_seconds"])
+            for N in N_values:
+                bt_entry = results["BT"].get(N, {})
+                if isinstance(bt_entry.get("solution_found") if isinstance(bt_entry, dict) else None, bool):
+                    row = bt_entry if label == "mcv_hybrid" else None
+                else:
+                    row = bt_entry.get(label)
+                if row is None or not isinstance(row, dict):
+                    continue
+                writer.writerow([N, row.get("solution_found", False), row.get("nodes", 0), row.get("time", 0.0)])
+        print(f"BT per-solver CSV saved: {filename}")
+
+
+def save_bt_per_solver_raw_data(results: ExperimentResults, N_values: List[int], fitness_mode: str, out_dir: str) -> None:
+    """Write one raw-data CSV per BT solver.
+
+    Filenames: `raw_data_BT_<solver>.csv` or `raw_data_BT_<solver>_<FITNESS>.csv` when GA is present.
+    Columns: n, algorithm, solution_found, nodes_explored, time_seconds.
+    Skips when no BT runs are present.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    has_bt, _, has_ga = _detect_presence(results, N_values)
+    if not has_bt:
+        return
+
+    # Collect solver labels
+    solver_labels: List[str] = []
+    label_set = set()
+    for N in N_values:
+        bt_entry = results["BT"].get(N, {})
+        if isinstance(bt_entry.get("solution_found") if isinstance(bt_entry, dict) else None, bool):
+            lbls = ["mcv_hybrid"]
+            for l in lbls:
+                if l not in label_set:
+                    label_set.add(l)
+                    solver_labels.append(l)
+        else:
+            for l in bt_entry.keys():
+                if l not in label_set:
+                    label_set.add(l)
+                    solver_labels.append(l)
+
+    suffix = _build_suffix(results, N_values)
+    for label in solver_labels:
+        filename = os.path.join(
+            out_dir,
+            (f"raw_data_BT_{label}_{fitness_mode}{suffix}.csv" if has_ga else f"raw_data_BT_{label}{suffix}.csv"),
+        )
+        with open(filename, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["n", "algorithm", "solution_found", "nodes_explored", "time_seconds"])
+            for N in N_values:
+                bt_entry = results["BT"].get(N, {})
+                if isinstance(bt_entry.get("solution_found") if isinstance(bt_entry, dict) else None, bool):
+                    row = bt_entry if label == "mcv_hybrid" else None
+                else:
+                    row = bt_entry.get(label)
+                if row is None or not isinstance(row, dict):
+                    continue
+                writer.writerow([N, f"BT_{label.upper()}", row.get("solution_found", False), row.get("nodes", 0), row.get("time", 0.0)])
+        print(f"BT per-solver RAW CSV saved: {filename}")
 
 
 def save_raw_data_to_csv(results: ExperimentResults, N_values: List[int], fitness_mode: str, out_dir: str) -> None:
@@ -237,9 +391,10 @@ def save_raw_data_to_csv(results: ExperimentResults, N_values: List[int], fitnes
     os.makedirs(out_dir, exist_ok=True)
     has_bt, has_sa, has_ga = _detect_presence(results, N_values)
 
+    suffix = _build_suffix(results, N_values)
     sa_filename = None
     if has_sa:
-        sa_filename = os.path.join(out_dir, (f"raw_data_SA_{fitness_mode}.csv" if has_ga else "raw_data_SA.csv"))
+        sa_filename = os.path.join(out_dir, (f"raw_data_SA_{fitness_mode}{suffix}.csv" if has_ga else f"raw_data_SA{suffix}.csv"))
         with open(sa_filename, "w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow([
@@ -271,7 +426,7 @@ def save_raw_data_to_csv(results: ExperimentResults, N_values: List[int], fitnes
 
     ga_filename = None
     if has_ga:
-        ga_filename = os.path.join(out_dir, f"raw_data_GA_{fitness_mode}.csv")
+        ga_filename = os.path.join(out_dir, f"raw_data_GA_{fitness_mode}{suffix}.csv")
         with open(ga_filename, "w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow([
@@ -315,7 +470,7 @@ def save_raw_data_to_csv(results: ExperimentResults, N_values: List[int], fitnes
 
     bt_filename = None
     if has_bt:
-        bt_filename = os.path.join(out_dir, (f"raw_data_BT_{fitness_mode}.csv" if has_ga else "raw_data_BT.csv"))
+        bt_filename = os.path.join(out_dir, (f"raw_data_BT_{fitness_mode}{suffix}.csv" if has_ga else f"raw_data_BT{suffix}.csv"))
         with open(bt_filename, "w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(["n", "algorithm", "solution_found", "nodes_explored", "time_seconds"])
@@ -348,7 +503,8 @@ def save_logical_cost_analysis(results: ExperimentResults, N_values: List[int], 
     """
     os.makedirs(out_dir, exist_ok=True)
     has_bt, has_sa, has_ga = _detect_presence(results, N_values)
-    filename = os.path.join(out_dir, (f"logical_costs_{fitness_mode}.csv" if has_ga else "logical_costs.csv"))
+    suffix = _build_suffix(results, N_values)
+    filename = os.path.join(out_dir, (f"logical_costs_{fitness_mode}{suffix}.csv" if has_ga else f"logical_costs{suffix}.csv"))
 
     with open(filename, "w", newline="") as f:
         writer = csv.writer(f)

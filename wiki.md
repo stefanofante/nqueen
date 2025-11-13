@@ -618,17 +618,24 @@ def tune_ga_for_N(N, fitness_mode, pop_multipliers, gen_multipliers, pm_values):
 - LaTeX rendering for mathematical expressions
 - Multi-format export (PNG, PDF, SVG)
 
+### Modalità e Gating
+
+- Correlazioni sequenziali: i grafici di correlazione 07 (SA: passi vs tempo), 08 (GA: valutazioni vs tempo) e 09 (BT: nodi vs tempo) vengono generati solo in modalità `sequential`, dove la misura di tempo è coerente e comparabile. In modalità `parallel`/`concurrent` sono saltati con un messaggio informativo.
+- Diagnostica BT: il grafico 09b (tempo-per-nodo vs N) è disponibile in modalità `sequential` come supporto diagnostico.
+- Presenza algoritmi: per ogni fitness vengono generati sia grafici per-algoritmo (BT, SA, GA) sia grafici “merge” solo se i relativi dati sono effettivamente presenti.
+
 ## Data Export System
 
 ### CSV File Structure
 
 Column naming uses lowercase snake_case. Aggregates and logical-cost CSVs prefix fields with `bt_`, `sa_`, `ga_`. Time fields are in seconds.
 
-**Aggregated Results (contextual naming):**
+**Aggregated Results (con suffisso algoritmico):**
 
 ```text
-# With GA present: results_GA_<FITNESS>_tuned.csv
-# Without GA:      results_BT.csv / results_SA.csv / results_BT_SA.csv
+# Con GA:     results_GA_<FITNESS>_tuned<SUFFISSO_ALGORITMI>.csv
+# Senza GA:   results_BT<SUFFISSO_ALGORITMI>.csv / results_SA<SUFFISSO_ALGORITMI>.csv / results_BT_SA<SUFFISSO_ALGORITMI>.csv
+# Esempio di <SUFFISSO_ALGORITMI>: _BT-mcv_hybrid+mcv+lcv+first-SA-GA
 n,
 bt_solution_found, bt_nodes_explored, bt_time_seconds,
 bt_first_solution_found, bt_first_nodes_explored, bt_first_time_seconds,
@@ -651,12 +658,12 @@ Nota: i campi `bt_*` senza suffisso fanno riferimento al solver ibrido `bt_nquee
 **Raw Data — Simulated Annealing:**
 
 ```text
-# With GA present: raw_data_SA_<FITNESS>.csv
-# Without GA:      raw_data_SA.csv
+# Con GA:     raw_data_SA_<FITNESS><SUFFISSO_ALGORITMI>.csv
+# Senza GA:   raw_data_SA<SUFFISSO_ALGORITMI>.csv
 n, run_id, algorithm, success, timeout, steps, time_seconds, evals, best_conflicts
 ```
 
-**Raw Data — Genetic Algorithm (`raw_data_GA_<FITNESS>.csv`):**
+**Raw Data — Genetic Algorithm (`raw_data_GA_<FITNESS><SUFFISSO_ALGORITMI>.csv`):**
 
 ```text
 n, run_id, algorithm, success, timeout, gen, time_seconds, evals, best_fitness, best_conflicts,
@@ -666,17 +673,32 @@ pop_size, max_gen, pm, pc, tournament_size
 **Raw Data — Backtracking:**
 
 ```text
-# With GA present: raw_data_BT_<FITNESS>.csv
-# Without GA:      raw_data_BT.csv
+# Con GA:     raw_data_BT_<FITNESS><SUFFISSO_ALGORITMI>.csv
+# Senza GA:   raw_data_BT<SUFFISSO_ALGORITMI>.csv
 # Note: generated only if BT is selected/run
 n, algorithm, solution_found, nodes_explored, time_seconds
 ```
 
+**Backtracking — esportazioni per-solver:**
+
+```text
+# Sommario per-solver (wide → long):
+bt_solvers_summary[ _<FITNESS> ]<SUFFISSO_ALGORITMI>.csv
+
+# Risultati per-solver (uno per solver):
+bt_results_<solver>[ _<FITNESS> ]<SUFFISSO_ALGORITMI>.csv
+
+# Raw per-solver (uno per solver):
+raw_data_BT_<solver>[ _<FITNESS> ]<SUFFISSO_ALGORITMI>.csv
+```
+
+Note: `<solver>` è il suffisso del nome funzione senza prefisso `bt_nqueens_` (es. `first`, `mcv`, `lcv`, `mcv_hybrid`).
+
 **Logical Cost Analysis:**
 
 ```text
-# With GA present: logical_costs_<FITNESS>.csv
-# Without GA:      logical_costs.csv
+# Con GA:     logical_costs_<FITNESS><SUFFISSO_ALGORITMI>.csv
+# Senza GA:   logical_costs<SUFFISSO_ALGORITMI>.csv
 n,
 bt_solution_found, bt_nodes_explored,
 sa_success_rate, sa_steps_mean_all, sa_steps_median_all, sa_evals_mean_all, sa_evals_median_all,
@@ -689,7 +711,13 @@ bt_time_seconds, sa_time_mean_success, ga_time_mean_success
 ### Logging Semantics
 
 - When `GA` is not selected, the CLI ignores any `--fitness/-f` filter and avoids mentioning fitness in banners and progress logs.
-- Plotting is optional; attempting to plot without `matplotlib` installed raises a clear runtime error only when plotting APIs are called.
+- Plotting è opzionale: se le librerie grafiche non sono disponibili (`matplotlib`/`seaborn`), le funzioni di plot vengono saltate in modo sicuro con un messaggio informativo, senza errori a runtime.
+
+### Policy nomi file
+
+- Suffisso algoritmico sempre attivo: tutti i file esportati includono un suffisso basato sugli algoritmi effettivamente eseguiti, p.es. `_BT-mcv_hybrid+mcv+lcv+first-SA-GA`.
+- Niente data/tag: non sono presenti timestamp o run-tag nei nomi dei file. Le vecchie opzioni CLI `--alg-in-filenames` e `--run-tag` sono state rimosse.
+- Coerenza tra reporting e plotting: lo stesso suffisso è applicato sia ai CSV sia ai grafici.
 
 ### Capability Listing (`--list`)
 

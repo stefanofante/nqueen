@@ -46,6 +46,14 @@ FITNESS_MODES: List[str] = ["F1", "F2", "F3", "F4", "F5", "F6"]
 # Number of worker processes to use (leave one core for the OS)
 NUM_PROCESSES: int = max(1, multiprocessing.cpu_count() - 1)
 
+# Optional run labeling to avoid overwriting outputs
+# Filenames will include algorithm selection and/or a run tag by default
+ALG_IN_FILENAMES: bool = True
+RUN_TAG: Optional[str] = None
+
+# Current pipeline mode for plotting/gating decisions: 'sequential' | 'parallel' | 'concurrent'
+CURRENT_PIPELINE_MODE: str = 'parallel'
+
 
 def set_timeouts(
     bt_timeout: Optional[float] = None,

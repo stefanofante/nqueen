@@ -45,7 +45,7 @@ from .reporting import (
     save_raw_data_to_csv,
     save_results_to_csv,
 )
-from .reporting import save_bt_solvers_summary
+from .reporting import save_bt_solvers_summary, save_bt_per_solver_results, save_bt_per_solver_raw_data
 from .stats import ProgressPrinter
 from .tuning import (
     tune_all_fitness_parallel,
@@ -244,6 +244,7 @@ def main_sequential(
     is preferred for debugging and reproducibility of I/O.
     """
     os.makedirs(settings.OUT_DIR, exist_ok=True)
+    settings.CURRENT_PIPELINE_MODE = 'sequential'
     selected_fitness = fitness_modes or settings.FITNESS_MODES
 
     include_bt = (algorithms is None) or ("BT" in algorithms)
@@ -401,6 +402,8 @@ def main_sequential(
         save_raw_data_to_csv(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
         save_logical_cost_analysis(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
         save_bt_solvers_summary(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
+        save_bt_per_solver_results(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
+        save_bt_per_solver_raw_data(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
         plot_and_save(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
 
     print("\nSequential pipeline completed.")
@@ -418,6 +421,7 @@ def main_parallel(
 ) -> None:
     """Run GA tuning and final experiments leveraging process-level parallelism."""
     os.makedirs(settings.OUT_DIR, exist_ok=True)
+    settings.CURRENT_PIPELINE_MODE = 'parallel'
     selected_fitness = fitness_modes or settings.FITNESS_MODES
 
     print(f"\nStarting parallel pipeline with {settings.NUM_PROCESSES} worker processes")
@@ -615,8 +619,13 @@ def main_parallel(
         save_raw_data_to_csv(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
         save_logical_cost_analysis(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
         save_bt_solvers_summary(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
+        save_bt_per_solver_results(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
+        save_bt_per_solver_raw_data(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
         plot_and_save(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
-        print(f"  Results saved for {fitness_mode}")
+        if include_ga:
+            print(f"  Results saved for {fitness_mode}")
+        else:
+            print("  Results saved.")
 
     total_time = perf_counter() - start_total
     print("\nParallel pipeline completed!")
@@ -671,6 +680,7 @@ def main_concurrent_tuning(
     across fitness functions. Intended as the default, comprehensive pipeline.
     """
     os.makedirs(settings.OUT_DIR, exist_ok=True)
+    settings.CURRENT_PIPELINE_MODE = 'concurrent'
     selected_fitness = fitness_modes or settings.FITNESS_MODES
 
     include_ga_header = (algorithms is None) or ("GA" in algorithms)
@@ -808,6 +818,8 @@ def main_concurrent_tuning(
         save_raw_data_to_csv(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
         save_logical_cost_analysis(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
         save_bt_solvers_summary(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
+        save_bt_per_solver_results(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
+        save_bt_per_solver_raw_data(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
         plot_and_save(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
 
     if include_ga:
@@ -904,9 +916,14 @@ def run_quick_regression_tests() -> None:
 
     with tempfile.TemporaryDirectory() as tmpdir:
         save_results_to_csv(results, [8], "F1", tmpdir)
-        csv_path = Path(tmpdir) / "results_GA_F1_tuned.csv"
-        if not csv_path.exists() or csv_path.stat().st_size == 0:
+        # Filename policy may add algorithm suffixes; accept any matching prefix
+        from glob import glob
+        matches = glob(str(Path(tmpdir) / "results_GA_F1_tuned*.csv"))
+        if not matches:
             raise AssertionError("Results CSV was not generated successfully during quick tests.")
+        csv_path = Path(matches[0])
+        if csv_path.stat().st_size == 0:
+            raise AssertionError("Results CSV is empty during quick tests.")
 
     print("Quick regression tests passed.")
 
@@ -950,6 +967,12 @@ def build_arg_parser():
     parser.add_argument("--quick-test", action="store_true", help="Run quick regression tests (N=8) and exit.")
     parser.add_argument("--validate", action="store_true", help="Validate solutions and run consistency checks on results (extra assertions).")
     parser.add_argument("--list", action="store_true", help="List available algorithms and discovered BT solvers, then exit.")
+    parser.add_argument(
+        "--n-values",
+        "-N",
+        type=str,
+        help="Override N values for this run (comma-separated, e.g., 8,16,24).",
+    )
     return parser
 
 
@@ -1030,9 +1053,27 @@ def main() -> None:
         print(f"Configuration error: {exc}")
         raise SystemExit(1) from exc
 
-    include_ga_main = (alg_filter is None) or ("GA" in alg_filter)
+    # Filename suffixing is enabled by default via settings; CLI flags removed per policy.
+
+    # Optional per-run override of N values (non-persistent)
+    if getattr(args, "n_values", None):
+        try:
+            override = [int(x.strip()) for x in str(args.n_values).split(",") if x.strip()]
+            if not override:
+                raise ValueError("Empty --n-values override")
+            settings.N_VALUES = override
+            print(f"Overriding N values for this run: {settings.N_VALUES}")
+        except Exception as e:
+            print(f"Invalid --n-values specification: {args.n_values} ({e})")
+            raise SystemExit(2) from e
+
+    # If no algorithm filter is provided, run all (BT, SA, GA)
+    if alg_filter is None:
+        alg_filter = ["BT", "SA", "GA"]
+    include_ga_main = ("GA" in alg_filter)
     if include_ga_main:
         print(f"Selected fitness modes: {selected_fitness}")
+    print("Algorithms enabled: " + ", ".join(alg_filter))
 
     # Tuning policy: only on explicit request (--tune). Default: reuse parameters.
     skip_tuning_effective = not getattr(args, "tune", False)

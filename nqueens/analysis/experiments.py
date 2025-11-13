@@ -103,7 +103,7 @@ def run_experiments_with_best_ga(
         if progress:
             progress.update(index, f"N={N}")
         if include_ga:
-            print(f"=== (Final) N = {N}, GA fitness F{fitness_mode} ===")
+            print(f"=== (Final) N = {N}, GA fitness {fitness_mode} ===")
         else:
             enabled = "+".join([name for name, flag in (("BT", include_bt), ("SA", include_sa)) if flag]) or "NONE"
             print(f"=== (Final) N = {N}, {enabled} ===")
@@ -119,6 +119,9 @@ def run_experiments_with_best_ga(
                 selected = [(label, fn) for label, fn in discovered if label in wanted]
             else:
                 selected = discovered
+
+            if selected:
+                print("  Running BT solvers: " + ", ".join(label for label, _ in selected) + "...")
 
             bt_results: Dict[str, Dict[str, Any]] = {}
             for label, fn in selected:
@@ -346,7 +349,7 @@ def run_experiments_with_best_ga_parallel(
         if progress:
             progress.update(index, f"N={N}")
         if include_ga:
-            print(f"=== (Final Parallel) N = {N}, GA fitness F{fitness_mode} ===")
+            print(f"=== (Final Parallel) N = {N}, GA fitness {fitness_mode} ===")
         else:
             enabled = "+".join([name for name, flag in (("BT", include_bt), ("SA", include_sa)) if flag]) or "NONE"
             print(f"=== (Final Parallel) N = {N}, {enabled} ===")
@@ -362,6 +365,9 @@ def run_experiments_with_best_ga_parallel(
                 selected = [(label, fn) for label, fn in discovered if label in wanted]
             else:
                 selected = discovered
+
+            if selected:
+                print("  Running BT solvers: " + ", ".join(label for label, _ in selected) + "...")
 
             bt_results: Dict[str, Dict[str, Any]] = {}
             for label, fn in selected:
