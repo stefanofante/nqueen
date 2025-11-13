@@ -99,14 +99,16 @@ def run_experiments_with_best_ga(
     results: Any = {"BT": {}, "SA": {}, "GA": {}}
     progress = ProgressPrinter(len(N_values), progress_label) if progress_label else None
 
+    interrupted = False
     for index, N in enumerate(N_values, start=1):
-        if progress:
-            progress.update(index, f"N={N}")
-        if include_ga:
-            print(f"=== (Final) N = {N}, GA fitness {fitness_mode} ===")
-        else:
-            enabled = "+".join([name for name, flag in (("BT", include_bt), ("SA", include_sa)) if flag]) or "NONE"
-            print(f"=== (Final) N = {N}, {enabled} ===")
+        try:
+            if progress:
+                progress.update(index, f"N={N}")
+            if include_ga:
+                print(f"=== (Final) N = {N}, GA fitness {fitness_mode} ===")
+            else:
+                enabled = "+".join([name for name, flag in (("BT", include_bt), ("SA", include_sa)) if flag]) or "NONE"
+                print(f"=== (Final) N = {N}, {enabled} ===")
 
         if include_bt:
             discovered = _discover_bt_solvers()
@@ -317,6 +319,10 @@ def run_experiments_with_best_ga(
                 "tournament_size": 0,
                 "raw_runs": [],
             }
+        except KeyboardInterrupt:
+            print("\nInterrupted by user (sequential). Returning partial results...")
+            interrupted = True
+            break
 
     return results
 
@@ -345,14 +351,16 @@ def run_experiments_with_best_ga_parallel(
     results: Any = {"BT": {}, "SA": {}, "GA": {}}
     progress = ProgressPrinter(len(N_values), progress_label) if progress_label else None
 
+    interrupted = False
     for index, N in enumerate(N_values, start=1):
         if progress:
             progress.update(index, f"N={N}")
-        if include_ga:
-            print(f"=== (Final Parallel) N = {N}, GA fitness {fitness_mode} ===")
-        else:
-            enabled = "+".join([name for name, flag in (("BT", include_bt), ("SA", include_sa)) if flag]) or "NONE"
-            print(f"=== (Final Parallel) N = {N}, {enabled} ===")
+        try:
+            if include_ga:
+                print(f"=== (Final Parallel) N = {N}, GA fitness {fitness_mode} ===")
+            else:
+                enabled = "+".join([name for name, flag in (("BT", include_bt), ("SA", include_sa)) if flag]) or "NONE"
+                print(f"=== (Final Parallel) N = {N}, {enabled} ===")
 
         if include_bt:
             discovered = _discover_bt_solvers()
@@ -562,6 +570,10 @@ def run_experiments_with_best_ga_parallel(
                 "tournament_size": 0,
                 "raw_runs": [],
             }
+        except KeyboardInterrupt:
+            print("\nInterrupted by user (parallel). Returning partial results...")
+            interrupted = True
+            break
 
     return results
 

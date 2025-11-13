@@ -131,6 +131,20 @@ def discover_bt_solver_labels() -> List[str]:
     return sorted(labels)
 
 
+def _present_n_values(results: Any) -> List[int]:
+    """Return sorted list of N for which any algorithm has results.
+
+    Used to save partial results safely after interruptions.
+    """
+    ns = set()
+    for key in ("BT", "SA", "GA"):
+        try:
+            ns.update(results.get(key, {}).keys())
+        except Exception:
+            continue
+    return sorted(int(n) for n in ns)
+
+
 def normalize_optimal_parameters(raw_params: Optional[Dict[Any, Any]]) -> Dict[Any, Any]:
     """Normalize keys of persisted GA parameters to integer N values.
 
@@ -409,14 +423,17 @@ def main_sequential(
             include_ga=include_ga,
             bt_solvers=bt_solvers,
         )
-
-        save_results_to_csv(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
-        save_raw_data_to_csv(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
-        save_logical_cost_analysis(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
-        save_bt_solvers_summary(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
-        save_bt_per_solver_results(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
-        save_bt_per_solver_raw_data(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
-        plot_and_save(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
+        n_done = _present_n_values(results)
+        if not n_done:
+            print("No results to save yet.")
+        else:
+            save_results_to_csv(results, n_done, fitness_mode, settings.OUT_DIR)
+            save_raw_data_to_csv(results, n_done, fitness_mode, settings.OUT_DIR)
+            save_logical_cost_analysis(results, n_done, fitness_mode, settings.OUT_DIR)
+            save_bt_solvers_summary(results, n_done, fitness_mode, settings.OUT_DIR)
+            save_bt_per_solver_results(results, n_done, fitness_mode, settings.OUT_DIR)
+            save_bt_per_solver_raw_data(results, n_done, fitness_mode, settings.OUT_DIR)
+            plot_and_save(results, n_done, fitness_mode, settings.OUT_DIR)
 
     print("\nSequential pipeline completed.")
 
@@ -640,13 +657,17 @@ def main_parallel(
         print(f"  Experiments completed in {experiments_time:.1f}s")
 
         print("Generating charts and CSV reports...")
-        save_results_to_csv(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
-        save_raw_data_to_csv(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
-        save_logical_cost_analysis(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
-        save_bt_solvers_summary(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
-        save_bt_per_solver_results(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
-        save_bt_per_solver_raw_data(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
-        plot_and_save(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
+        n_done = _present_n_values(results)
+        if not n_done:
+            print("No results to save yet.")
+        else:
+            save_results_to_csv(results, n_done, fitness_mode, settings.OUT_DIR)
+            save_raw_data_to_csv(results, n_done, fitness_mode, settings.OUT_DIR)
+            save_logical_cost_analysis(results, n_done, fitness_mode, settings.OUT_DIR)
+            save_bt_solvers_summary(results, n_done, fitness_mode, settings.OUT_DIR)
+            save_bt_per_solver_results(results, n_done, fitness_mode, settings.OUT_DIR)
+            save_bt_per_solver_raw_data(results, n_done, fitness_mode, settings.OUT_DIR)
+            plot_and_save(results, n_done, fitness_mode, settings.OUT_DIR)
         if include_ga:
             print(f"  Results saved for {fitness_mode}")
         else:
@@ -852,13 +873,17 @@ def main_concurrent_tuning(
 
         all_results[fitness_mode] = results
 
-        save_results_to_csv(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
-        save_raw_data_to_csv(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
-        save_logical_cost_analysis(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
-        save_bt_solvers_summary(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
-        save_bt_per_solver_results(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
-        save_bt_per_solver_raw_data(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
-        plot_and_save(results, settings.N_VALUES, fitness_mode, settings.OUT_DIR)
+        n_done = _present_n_values(results)
+        if not n_done:
+            print("No results to save yet.")
+        else:
+            save_results_to_csv(results, n_done, fitness_mode, settings.OUT_DIR)
+            save_raw_data_to_csv(results, n_done, fitness_mode, settings.OUT_DIR)
+            save_logical_cost_analysis(results, n_done, fitness_mode, settings.OUT_DIR)
+            save_bt_solvers_summary(results, n_done, fitness_mode, settings.OUT_DIR)
+            save_bt_per_solver_results(results, n_done, fitness_mode, settings.OUT_DIR)
+            save_bt_per_solver_raw_data(results, n_done, fitness_mode, settings.OUT_DIR)
+            plot_and_save(results, n_done, fitness_mode, settings.OUT_DIR)
 
     if include_ga:
         print("\n" + "=" * 70)
